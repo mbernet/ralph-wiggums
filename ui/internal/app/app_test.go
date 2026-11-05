@@ -1,7 +1,10 @@
 package app
 
 import (
+	"strings"
+
 	"bytes"
+	tea "github.com/charmbracelet/bubbletea"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,4 +74,60 @@ func TestAWatcherCannotAct(t *testing.T) {
 	if !m.done {
 		t.Fatal("q does not quit a watcher")
 	}
+}
+
+func send(t *testing.T, m *model, line string) {
+	t.Helper()
+	e, err := event.Decode([]byte(line))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(evMsg{e: e, ok: true})
+}
+
+func TestZOpensTheSaverOnTheWholeScreenAndAnyKeyCloses(t *testing.T) {
+	m, stop, _ := liveModel(t, Live)
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
+	m.Update(key("z"))
+	if got := len(strings.Split(m.View(), "\n")); got != 18 {
+		t.Fatalf("the saver draws %d lines on a screen of 18", got)
+	}
+	m.Update(key("q"))
+	if exists(stop) {
+		t.Fatal("the key that closes the saver also asked the loop to stop")
+	}
+	if got := len(strings.Split(m.View(), "\n")); got >= 18 {
+		t.Fatalf("the saver is still open: %d lines", got)
+	}
+	m.Update(key("q"))
+	if !exists(stop) {
+		t.Fatal("after the saver, q does not stop the loop")
+	}
+}
+
+func TestWhatHappensUnderTheSaverIsPrintedOnReturn(t *testing.T) {
+	m, _, _ := liveModel(t, Live)
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
+	m.Update(key("z"))
+	send(t, m, `{"v":1,"ts":5,"type":"notice","level":"warn","text":"disk-nearly-full"}`)
+	if !strings.Contains(strings.Join(m.held, "\n"), "disk-nearly-full") {
+		t.Fatal("a notice under the saver is not kept for the return")
+	}
+	if _, cmd := m.Update(key("x")); cmd == nil || len(m.held) != 0 {
+		t.Fatal("the kept lines are not printed on return")
+	}
+}
+
+func TestTheEndOfTheSessionClosesTheSaver(t *testing.T) {
+	m, _, _ := liveModel(t, Live)
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
+	m.Update(key("z"))
+	send(t, m, `{"v":1,"ts":9,"type":"session.exit","code":0}`)
+	if m.saver != nil || len(m.held) != 0 || !m.done {
+		t.Fatal("the session ended under the saver and the saver stayed")
+	}
+}
+
+func key(k string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }

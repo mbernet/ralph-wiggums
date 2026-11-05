@@ -42,7 +42,7 @@ ui/bin/ralph-ui replay .ralph/logs/<run>
 - `docs/central-prd-spec.md`, `docs/task.schema.json` - The API the loop talks to
 - `skills/` - `prd` writes a PRD, `ralph` converts it to `prd.json` and imports it
 - `docs/events.md` - The event stream `ralph.sh` writes for its renderers
-- `ui/` - `ralph-ui` (Go, Bubble Tea): `event` decodes the stream, `state` folds it, `view` draws it, `app` runs it
+- `ui/` - `ralph-ui` (Go, Bubble Tea): `event` decodes the stream, `state` folds it, `view` draws it, `saver` is the full-screen screensaver, `app` runs it
 
 ## Patterns
 
@@ -88,6 +88,6 @@ ui/bin/ralph-ui replay .ralph/logs/<run>
   own; Ctrl-C is passed on as the terminal would.
 - The plain output stays complete without ralph-ui. With it, the plain output goes to
   `console.log`, so `ralph.sh` re-runs `ui_init` and sees no terminal from then on.
-- `ui/internal/view` returns strings for a given width and is tested without a terminal.
+- `ui/internal/view` and `ui/internal/saver` return strings for a given size and are tested without a terminal.
   Assert on data (ids, numbers, the feedback text) and on every line fitting the width,
   never on the wording.

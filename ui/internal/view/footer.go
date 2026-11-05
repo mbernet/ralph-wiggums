@@ -22,13 +22,13 @@ func (v *View) Footer(s *state.State, o Options) string {
 	case o.Stopping && s.Exit == nil:
 		lines = append(lines, trunc(t.Warn.Render(g.Stop+" stopping after this stage")+t.Faint.Render("  q cancels"), w))
 	case o.Watching != "":
-		lines = append(lines, trunc(t.Faint.Render("watching "+o.Watching+"  ")+v.keys(w, "q", "quit", "v", "detail", "b", "board"), w))
+		lines = append(lines, trunc(t.Faint.Render("watching "+o.Watching+"  ")+v.keys(w, "q", "quit", "v", "detail", "b", "board", "z", "saver"), w))
 	case o.Live:
 		if o.Help {
 			lines = append(lines, v.keys(w, "q", "stop after this stage", "s", "skip the wait", "v", "detail "+o.Verbosity.String(),
-				"b", "board", "^C", "interrupt, twice aborts"))
+				"b", "board", "z", "screensaver", "^C", "interrupt, twice aborts"))
 		} else {
-			lines = append(lines, v.keys(w, "q", "stop", "s", "skip wait", "v", "detail", "b", "board", "?", "help"))
+			lines = append(lines, v.keys(w, "q", "stop", "s", "skip wait", "v", "detail", "b", "board", "z", "saver", "?", "help"))
 		}
 	}
 	for i := range lines {
