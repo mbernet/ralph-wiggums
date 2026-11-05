@@ -9,4 +9,4 @@ The pull request is reviewed. You get it into `main` and write down what the pro
 
 The stage is done when the pull request is `MERGED`. Only then `pass`.
 
-Your `summary` is the memory of the project: every later task receives it. Distil the `body` of each run into what was done and where it lives in the code, in two or three lines. Leave out the story of how the task got there; lessons go in `LEARNINGS.md`.
+Your `summary` is the memory of the project: every later task receives it. Distil the `body` of each run into what was done and where it lives in the code, in two or three lines. Add a lesson only when a run found something out the hard way that the code does not show and a later task would have to find out again. Most tasks leave no lesson. Leave out the story of how the task got there.

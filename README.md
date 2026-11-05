@@ -367,11 +367,9 @@ Too big (split these):
 
 A task is handed out only when everything in its `dependsOn` is merged. That is what orders the work, and what lets several workers run at once. `priority` only breaks ties.
 
-### LEARNINGS.md Holds the Hard-Won Lessons
+### The Summaries Are the Project's Memory
 
-Every run reads `LEARNINGS.md` at the root of the repo, and any run may add a lesson to it in its pull request. A lesson is something an agent found out the hard way and the next one would otherwise have to find out again: "the test database must be migrated by hand before `npm test`", not "the settings panel is in component X". Most runs add nothing, and the code review deletes entries that are not lessons.
-
-`CLAUDE.md` and `AGENTS.md` stay as the people of the project write them.
+The merge stage closes each task with a short `summary`: what was done, where it lives in the code, and a lesson only when a run found something out the hard way. Every later task receives all the summaries. The agents leave `CLAUDE.md` and `AGENTS.md` as the people of the project write them.
 
 ### Feedback Loops
 

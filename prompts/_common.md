@@ -18,16 +18,6 @@ You are one run of an autonomous loop. `ralph.sh` hands you one task at one stag
 - **`sick` is for a task that cannot move by normal means**: a broken environment, a spec that contradicts itself, missing access. Say exactly what blocks it; a doctor run reads your `body` next.
 - **Leave the working tree clean.** Commit or discard everything before you finish: the next run on this machine may be another task on another branch.
 
-## Lessons
-
-`LEARNINGS.md`, at the root of the repo, holds the lessons of earlier runs. Read it before you start; it may not exist yet.
-
-A lesson is something you found out the hard way, by trial and error or a failure you had to trace, that will cost the next agent the same work on another task. It belongs in the file only when the code, the config, the docs and the `progress` summaries do not already show it. Most runs learn no lesson and leave the file as it is.
-
-- Write a lesson in one or two lines: where it applies, and what to do.
-- When a lesson proves wrong or stale, fix it or delete it in the same commit.
-- `CLAUDE.md` and `AGENTS.md` belong to the people of the project. Lessons go in `LEARNINGS.md`; what holds for this task alone goes in your `body`.
-
 ## The result
 
 The last thing you do is write the result file named under "This Iteration", with the fields listed there. It is your only output: `ralph.sh` reads it and nothing else.

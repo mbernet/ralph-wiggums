@@ -20,7 +20,7 @@ La filosofía de Ralph no cambia. Cambia dónde vive la memoria.
 | `prd.json` y el flag `passes` | `POST /work` y el `outcome` de cada run |
 | Selección por `priority` con `jq` | La hace el servidor |
 | `progress.txt` | El `body` de cada run y el `summary` final; llegan en `progress` |
-| Sección "Codebase Patterns" | `summary` de las tareas hechas, más `LEARNINGS.md` |
+| Sección "Codebase Patterns" | `summary` de las tareas hechas |
 | `notes` para bloqueos | `outcome: sick` con el motivo en `body` |
 | `branchName` del PRD | Una rama por tarea: `ralph/<id>` |
 | `<promise>COMPLETE</promise>` | `finished` en la respuesta de `POST /work` |
@@ -81,7 +81,7 @@ Qué pide cada uno, con el pipeline de ejemplo:
 | `merge` | Actualiza la rama con `main`, espera al CI, mergea y escribe el `summary`: qué se hizo y qué conviene saber. | `pass` con `summary`. `reject` si los conflictos exigen reimplementar. `sick` si el CI no pasa por causas ajenas. |
 | `doctor` | Lee `runs`, diagnostica y arregla lo que tenga arreglo. | `pass`, `reject` o `sick`. |
 
-`CLAUDE.md` y `prompt.md` dejan de ser el prompt del bucle. Lo aprendido ya no va a los `CLAUDE.md` cercanos, que crecían en cada iteración, sino a `LEARNINGS.md`, en la raíz del repo. Lo lee cada run, solo se añade lo que ahorraría trabajo de verdad a otro agente, y `review_code` borra lo que no cumple. Esos cambios viajan en el PR.
+`CLAUDE.md` y `prompt.md` dejan de ser el prompt del bucle. Los agentes ya no actualizan los `CLAUDE.md` cercanos con lo aprendido: crecían en cada iteración con notas que nadie necesitaba. Lo aprendido va en el `summary` de `merge`, y solo cuando ahorraría trabajo a una tarea posterior.
 
 ### 2.5 Tiers de modelo
 
