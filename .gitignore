@@ -4,6 +4,9 @@ prd.json
 # Ralph runtime state: connection settings, usage ledger and per-run logs
 .ralph/
 
+# ralph-ui, built by make -C ui
+ui/bin/
+
 # OS files
 .DS_Store
 
