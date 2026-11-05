@@ -68,18 +68,18 @@ Done when `./ralph.sh --import prd.json` reports every task created and none ref
 
 From the clone, run `./scripts/ralph/ralph.sh --tool <cli> --explain`. It claims nothing. It must show the API, the project, its pipeline, its tasks and a pace action of `go`. Fix whatever it complains about.
 
-Then hand over in a short message, and nothing more:
+Then hand over with exactly this message, in the person's language:
 
-1. One line saying it is ready.
-2. The command to start it, in a code block, ready to paste:
+````
+Ralph is ready. To start it:
 
-   ```
-   cd <clone> && ./scripts/ralph/ralph.sh --tool <cli> <runs>
-   ```
+```
+cd <clone> && ./scripts/ralph/ralph.sh --tool <cli> <runs>
+```
+````
 
-   `<runs>` caps the agent runs. Each task takes one per pipeline stage, so give it the tasks left times the stages, plus a third for retries. The loop stops by itself when no task is left.
-3. At most three lines, each one something the person has to do or decide. Often there is none.
+`<runs>` caps the agent runs. Each task takes one per pipeline stage, so give it the tasks left times the stages, plus a third for retries.
 
-What you checked, installed, calculated or chose stays out of the message: the person asks if they want it.
+Below the command, add a line only for something the person has to do or decide before starting, at most three. Most setups need none. What you checked, installed, calculated or chose stays out: the person asks if they want it.
 
 Done when `--explain` is clean and the person has the command.
