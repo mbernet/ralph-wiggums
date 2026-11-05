@@ -1,17 +1,17 @@
 {
-  "name": "ralph-marketplace",
+  "name": "ralph-wiggums",
   "owner": {
-    "name": "snarktank"
+    "name": "mbernet"
   },
   "metadata": {
-    "description": "Skills for the Ralph autonomous agent system - Generate PRDs and convert them to prd.json format for autonomous execution",
+    "description": "Skills for Ralph Wiggums, the Ralph agent loop for several workers - Generate PRDs, convert them to prd.json and import them into the Ralph task API",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "ralph-skills",
+      "name": "ralph-wiggums-skills",
       "source": "./",
-      "description": "PRD generation and conversion skills for the Ralph autonomous agent loop",
+      "description": "PRD generation and import skills for the Ralph Wiggums agent loop",
       "version": "1.0.0",
       "keywords": ["ralph", "prd", "automation", "agent", "planning"],
       "category": "productivity",

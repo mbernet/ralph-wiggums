@@ -1,16 +1,14 @@
-# Ralph
+# Ralph Wiggums
 
 ![Ralph](ralph.webp)
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until every task of a PRD is merged. Each iteration is a fresh instance with clean context. Memory persists via git and a small task API that several workers share.
+Ralph Wiggums is Ralph in the plural: an autonomous AI agent loop where several workers share one project. Each worker runs an AI coding tool ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until every task of a PRD is merged. Each iteration is a fresh instance with clean context. Memory persists via git and a small task API that the workers share.
 
-Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
-
-[Read my in-depth article on how I use Ralph](https://x.com/ryancarson/status/2008548371712135632)
+Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/) and on [snarktank/ralph](https://github.com/snarktank/ralph) by Ryan Carson, whose loop, skills and history this repository carries on from. If you want one worker and plain files, with no server to run, use that one.
 
 ## How it works
 
-The original Ralph kept everything in two local files, `prd.json` and `progress.txt`: one worker, one checkout, no review. This version moves that state into an API ([spec](docs/central-prd-spec.md)) so that several workers can share one project:
+[Ralph](https://github.com/snarktank/ralph) keeps everything in two local files, `prd.json` and `progress.txt`: one worker, one checkout, no review. This version moves that state into an API ([spec](docs/central-prd-spec.md)) so that several workers can share one project:
 
 - A task goes through a **pipeline** of stages that each project defines. The default is `implement` → `review_functional` → `review_code` → `merge`.
 - Each stage is one agent run with a clean context and its own prompt. A reviewer can **reject**, which sends the task back to the first stage with the feedback.
@@ -39,8 +37,8 @@ Copy the ralph files into your project:
 ```bash
 # From your project root
 mkdir -p scripts/ralph
-cp /path/to/ralph/ralph.sh scripts/ralph/
-cp -r /path/to/ralph/prompts scripts/ralph/
+cp /path/to/ralph-wiggums/ralph.sh scripts/ralph/
+cp -r /path/to/ralph-wiggums/prompts scripts/ralph/
 
 chmod +x scripts/ralph/ralph.sh
 ```
@@ -65,16 +63,16 @@ cp -r skills/ralph ~/.claude/skills/
 
 ### Option 3: Use as Claude Code Marketplace
 
-Add the Ralph marketplace to Claude Code:
+Add the Ralph Wiggums marketplace to Claude Code:
 
 ```bash
-/plugin marketplace add snarktank/ralph
+/plugin marketplace add mbernet/ralph-wiggums
 ```
 
 Then install the skills:
 
 ```bash
-/plugin install ralph-skills@ralph-marketplace
+/plugin install ralph-wiggums-skills@ralph-wiggums
 ```
 
 Available skills after installation:
@@ -338,21 +336,6 @@ To iterate on the output without spending anything:
 | `skills/prd/` | Skill for generating PRDs (works with Amp and Claude Code) |
 | `skills/ralph/` | Skill for converting PRDs to JSON and importing them (works with Amp and Claude Code) |
 | `.claude-plugin/` | Plugin manifest for Claude Code marketplace discovery |
-| `flowchart/` | Interactive visualization of the original, file-based loop |
-
-## Flowchart
-
-[![Ralph Flowchart](ralph-flowchart.png)](https://snarktank.github.io/ralph/)
-
-**[View Interactive Flowchart](https://snarktank.github.io/ralph/)** - Click through to see each step with animations. It shows the original loop, before the task API.
-
-The `flowchart/` directory contains the source code. To run locally:
-
-```bash
-cd flowchart
-npm install
-npm run dev
-```
 
 ## Critical Concepts
 
@@ -456,5 +439,6 @@ A stage prompt only describes the work. What the result must carry (`pr`, `assum
 ## References
 
 - [Geoffrey Huntley's Ralph article](https://ghuntley.com/ralph/)
+- [snarktank/ralph](https://github.com/snarktank/ralph), the original loop, and [Ryan Carson's article on how he uses it](https://x.com/ryancarson/status/2008548371712135632)
 - [Amp documentation](https://ampcode.com/manual)
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)

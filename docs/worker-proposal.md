@@ -212,7 +212,7 @@ Cada worker debe trabajar en un clon propio, no en la copia de trabajo de una pe
 | `.gitignore` | Fuera `prd.json`, `progress.txt` y `.last-branch`. |
 | `tests/window.test.sh`, `tests/replay.sh` | Sin cambios. |
 | `tests/api.test.sh` | Nuevo. Sustituye el punto de salida HTTP por fixtures. |
-| `flowchart/` | Queda desfasado. Se actualiza aparte. |
+| `flowchart/` | Eliminado. Describía el bucle de ficheros y sigue en el Ralph original. |
 
 ## 5. Orden de trabajo
 
@@ -231,7 +231,6 @@ Cada paso deja el script funcionando y se hace con tests primero.
 - La definición OpenAPI coincide con la spec: mismos siete endpoints, mismos esquemas y mismas reglas por posición.
 - El token funciona. Sin token responde `401` y un proyecto inexistente `404`, ambos con la forma `{ "error": "..." }`.
 - Prueba de punta a punta con el script ya implementado y un agente de pega: `--import` de un proyecto de dos tareas y pipeline de dos etapas, y el bucle completo sobre él. Resultado: las dos tareas en `done`, un rechazo que devuelve la tarea a la primera etapa, la segunda tarea repartida solo cuando su dependencia cerró y con el `summary` de la primera en `progress`, y el worker terminando solo con código `0`.
-- Esa prueba dejó en la API local un proyecto desechable, `ralph-selftest-1793881401`. La API no permite borrar proyectos.
 
 ## 7. Diferencias con lo propuesto
 

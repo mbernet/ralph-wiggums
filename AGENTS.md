@@ -24,9 +24,6 @@ shellcheck -x -S style ralph.sh tests/api.test.sh
 # Load a PRD into the API, then work on it
 ./ralph.sh --import prd.json
 ./ralph.sh --tool claude [max_iterations]
-
-# Run the flowchart dev server
-cd flowchart && npm run dev
 ```
 
 ## Key Files
@@ -36,7 +33,6 @@ cd flowchart && npm run dev
 - `prd.json.example` - A PRD in the import format. It also seeds the fake API of a dry run
 - `docs/central-prd-spec.md`, `docs/task.schema.json` - The API the loop talks to
 - `skills/` - `prd` writes a PRD, `ralph` converts it to `prd.json` and imports it
-- `flowchart/` - Interactive React Flow diagram. It shows the original, file-based loop
 
 ## Patterns
 
