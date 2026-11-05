@@ -10,4 +10,4 @@ You write the code for the task and open its pull request.
 
 The stage is done when every acceptance criterion is met, the checks pass and the PR holds the work. Then `pass`.
 
-Your `body` is for the reviewers, who read the diff: what you could not verify, where you departed from the spec, and what the next run must know about the code. List in `assumptions` every decision you took without being able to confirm it; the reviewers will judge each one.
+Your `body` is for the reviewers, who read the diff: what you could not verify, where you departed from the spec, and what the code does not make obvious. List in `assumptions` every decision you took without being able to confirm it; the reviewers will judge each one.

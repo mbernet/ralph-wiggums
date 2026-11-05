@@ -244,3 +244,4 @@ Cada paso deja el script funcionando y se hace con tests primero.
 - **Códigos de salida.** `0` no queda nada, `1` iteraciones agotadas, `2` ventana agotada, `3` lo que queda espera a una persona, `4` configuración o autenticación, `5` el agente muere dos veces seguidas, `6` API inalcanzable.
 - **Rescate de una tarea parada.** `./ralph.sh --story <id>` la pide a dedo y vuelve a mandar al doctor. El resumen final lista las tareas paradas con su diagnóstico.
 - **`RALPH_MAX_RETRIES` desaparece.** Los reintentos los acota el claim.
+- **Tier por etapa.** El tier de la tarea vale para todas sus etapas, salvo que el worker le dé uno propio a una etapa con `RALPH_STAGE_<NOMBRE>`, por ejemplo `RALPH_STAGE_IMPLEMENT=low`. El script no conoce ningún nombre: lo saca del pipeline del proyecto, igual que el prompt. Probado en un proyecto real con haiku en `implement` y opus en las revisiones: los revisores encontraron y arreglaron un bug que haiku había dejado.

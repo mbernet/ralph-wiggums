@@ -213,6 +213,17 @@ The tier of a task applies to every one of its stages. The doctor runs on its ow
 `RALPH_MODEL_MED` and `RALPH_MODEL_HIGH` (model ids age, and `claude-opus-5[1m]` has to
 be quoted in a shell). `--tool amp` ignores tiers entirely; amp has no model selector.
 
+A worker can also give a stage its own tier, whatever the tier of the task, with
+`RALPH_STAGE_<STAGE NAME>` in `.ralph/env`. A cheap implementer with strong reviewers:
+
+```
+RALPH_STAGE_IMPLEMENT=low
+RALPH_MODEL_LOW=haiku
+```
+
+The names are those of your pipeline, so a new stage needs no change to the script.
+`RALPH_STAGE_DOCTOR` works too, and wins over `RALPH_DOCTOR_TIER`.
+
 The `/ralph` skill assigns the tiers when it converts your PRD, using the heuristics in
 `skills/ralph/SKILL.md`. The short version: default to `med`; use `low` when a competent
 junior could do it from the criteria alone; use `high` only for genuinely wide work. If

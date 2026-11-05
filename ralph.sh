@@ -563,6 +563,7 @@ ${C_BOLD}ralph.sh${C_RESET} - autonomous agent loop over the Ralph task API
     med  ${G_ARR} $RALPH_MODEL_MED
     high ${G_ARR} $RALPH_MODEL_HIGH
     The tier of a task applies to every stage. The doctor runs on $RALPH_DOCTOR_TIER.
+    RALPH_STAGE_<NAME>=<tier> gives one stage its own tier, e.g. RALPH_STAGE_IMPLEMENT=low.
 
   ${C_BOLD}Environment${C_RESET}
     RALPH_MODEL_LOW/MED/HIGH  tier ${G_ARR} model overrides
@@ -923,8 +924,14 @@ MODEL="" TIER_WARNED=0
 # The tier of a task applies to every one of its stages. The doctor is called
 # when something went wrong, so it gets its own tier, the highest by default.
 tier_to_model() {
-  local raw="$STORY_TIER_RAW"
+  local raw="$STORY_TIER_RAW" own
   [[ "$WORK_STAGE" == "doctor" ]] && raw="$RALPH_DOCTOR_TIER"
+  # A worker can give a stage its own tier, by name: RALPH_STAGE_IMPLEMENT=low.
+  # The name comes from the project's pipeline; the script knows none.
+  own="RALPH_STAGE_$(printf '%s' "$WORK_STAGE" | tr '[:lower:]' '[:upper:]')"
+  if [[ "$own" =~ ^RALPH_STAGE_[A-Z0-9_]+$ && -n "${!own:-}" ]]; then
+    raw="${!own}"
+  fi
   case "$raw" in
     low)
       STORY_TIER="low"
@@ -2591,6 +2598,13 @@ explain() {
   kv "tool" "$TOOL $CLAUDE_VERSION"
   kv "caps" "stream=$CLAUDE_CAP_STREAM model=$CLAUDE_CAP_MODEL budget=$CLAUDE_CAP_BUDGET"
   kv "tiers" "low=$RALPH_MODEL_LOW med=$RALPH_MODEL_MED high=$RALPH_MODEL_HIGH doctor=$RALPH_DOCTOR_TIER"
+  local own="" v
+  for v in $(compgen -v RALPH_STAGE_); do
+    own+=" $(printf '%s' "${v#RALPH_STAGE_}" | tr '[:upper:]' '[:lower:]')=${!v}"
+  done
+  if [[ -n "$own" ]]; then
+    kv "stage tiers" "${own# }"
+  fi
   kv "tasks" "$CNT_TOTAL total $G_DOT $CNT_DONE done $G_DOT $CNT_CLAIMED claimed $G_DOT $CNT_SICK sick $G_DOT $CNT_HUMAN waiting for a person $G_DOT $CNT_BLOCKED blocked"
   kv "next task" "${C_GREY}chosen by the server when the run asks for work${C_RESET}"
   printf '\n'
