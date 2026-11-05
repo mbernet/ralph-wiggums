@@ -115,6 +115,8 @@ RALPH_VERBOSE_STREAM=1
 DRY_RUN=0
 FAST=0
 EXPLAIN=0
+BOARD=0
+WATCH=0 WATCH_RUN=""
 SCENARIO="mixed"
 FORCE_STORY=""
 IMPORT_FILE=""
@@ -229,10 +231,26 @@ bar() { # bar <pct> [width] [forced-colour] -> "[####....]  42%"
     "$C_RESET" "$pct"
 }
 
-note() { printf '  %s%s%s %s\n' "$C_CYAN" "$G_DOT" "$C_RESET" "$*"; }
-ok() { printf '  %s%s%s %s\n' "$C_GREEN" "$G_OK" "$C_RESET" "$*"; }
-warn() { printf '  %s%s  %s%s\n' "$C_YELLOW" "$G_WARN" "$*" "$C_RESET" >&2; }
-err() { printf '  %s%s  %s%s\n' "$C_RED" "$G_BAD" "$*" "$C_RESET" >&2; }
+note() {
+  printf '  %s%s%s %s\n' "$C_CYAN" "$G_DOT" "$C_RESET" "$*"
+  ev_notice info "$*"
+}
+ok() {
+  printf '  %s%s%s %s\n' "$C_GREEN" "$G_OK" "$C_RESET" "$*"
+  ev_notice ok "$*"
+}
+warn() {
+  printf '  %s%s  %s%s\n' "$C_YELLOW" "$G_WARN" "$*" "$C_RESET" >&2
+  ev_notice warn "$*"
+}
+err() {
+  printf '  %s%s  %s%s\n' "$C_RED" "$G_BAD" "$*" "$C_RESET" >&2
+  ev_notice error "$*"
+}
+ev_notice() { # ev_notice <info|ok|warn|error> <text>
+  ev notice --arg level "$1" --arg text "$2" \
+    '{level: $level, text: ($text | gsub("\u001b\\[[0-9;]*m"; ""))}'
+}
 die() {
   err "$*"
   exit 4
@@ -281,41 +299,55 @@ fmt_clock() { # epoch -> local HH:MM (BSD date first, then GNU)
     printf 'unknown'
 }
 
+# A stop request ends the waits between stages at once. The waits inside one
+# (a retry, a backoff, the API) belong to the stage, which a stop lets finish.
+stop_ends_wait() { # stop_ends_wait <label>
+  case "$1" in
+    idle | throttle | window | quota) stop_requested ;;
+    *) return 1 ;;
+  esac
+}
+
 # Sleep with a live countdown. Recomputed from wall clock so it never drifts,
 # and ticks once a second so Ctrl-C is honoured promptly.
 countdown() { # countdown <seconds> <label> [colour]
   local total="$1" label="$2" col="${3:-$C_YELLOW}"
   ((total <= 0)) && return 0
   ((FAST)) && total=8
-  local end=$(($(date +%s) + total)) left pct f w=26
-  if ((UI_TTY == 0)); then
-    note "$label: sleeping $(fmt_dur "$total")"
-    while (($(date +%s) < end)); do
-      ((RALPH_INTERRUPTED)) && break
-      sleep 5
-    done
-    RUN_THROTTLED_S=$((RUN_THROTTLED_S + total))
-    return 0
-  fi
+  local start end left pct f w=26 skipped=0
+  start="$(date +%s)"
+  end=$((start + total))
+  # A skip asked for as an earlier wait ended on its own is not for this one.
+  [[ -n "$SKIP_FILE" ]] && rm -f "$SKIP_FILE"
+  ev wait.start --arg kind "$label" --argjson s "$total" --argjson until "$end" \
+    '{kind: $kind, seconds: $s, until: $until}'
+  ((UI_TTY)) || note "$label: sleeping $(fmt_dur "$total")"
   while :; do
     left=$((end - $(date +%s)))
     ((left <= 0)) && break
-    if ((RALPH_INTERRUPTED)); then
-      printf '\r\033[2K'
-      warn "sleep skipped"
-      RALPH_INTERRUPTED=0
+    if ((RALPH_INTERRUPTED)) || stop_ends_wait "$label" || skip_requested; then
+      if ((UI_TTY)); then
+        printf '\r\033[2K'
+        ((RALPH_INTERRUPTED)) && warn "sleep skipped"
+      fi
+      RALPH_INTERRUPTED=0 skipped=1
       break
     fi
-    pct=$(((total - left) * 100 / total))
-    f=$((pct * w / 100))
-    printf '\r\033[2K   %s%-9s%s %s[%s%s]%s %s left  %s(ctrl-c skips)%s' \
-      "$C_BOLD" "$label" "$C_RESET" \
-      "$col" "$(rep '#' "$f")" "$(rep '.' $((w - f)))" "$C_RESET" \
-      "$(fmt_dur "$left")" "$C_DIM" "$C_RESET"
+    if ((UI_TTY)); then
+      pct=$(((total - left) * 100 / total))
+      f=$((pct * w / 100))
+      printf '\r\033[2K   %s%-9s%s %s[%s%s]%s %s left  %s(ctrl-c skips)%s' \
+        "$C_BOLD" "$label" "$C_RESET" \
+        "$col" "$(rep '#' "$f")" "$(rep '.' $((w - f)))" "$C_RESET" \
+        "$(fmt_dur "$left")" "$C_DIM" "$C_RESET"
+    fi
     sleep 1
   done
-  printf '\r\033[2K'
-  RUN_THROTTLED_S=$((RUN_THROTTLED_S + total))
+  ((UI_TTY)) && printf '\r\033[2K'
+  # What was waited, not what was planned: a skip or a stop cuts it short.
+  RUN_THROTTLED_S=$((RUN_THROTTLED_S + $(date +%s) - start))
+  ev wait.end --arg kind "$label" --argjson skipped "$skipped" '{kind: $kind, skipped: ($skipped == 1)}'
+  return 0
 }
 
 on_int() {
@@ -331,8 +363,199 @@ on_int() {
 }
 
 on_exit() {
+  local code=$?
   printf '%s' "${C_RESET:-}"
+  ev session.exit --argjson code "$code" '{code: $code}'
+  ui_wait
   return 0
+}
+
+#endregion
+
+#region events ---------------------------------------------------------------
+
+# What the loop does, as one JSON object per line in $LOG_DIR/events.ndjson
+# (docs/events.md). It is how a renderer other than this script's own output
+# follows the run, live or afterwards: ralph-ui reads it, and so can anything
+# else. The plain output above is written as before; the events are extra.
+EVENTS_FILE=""
+
+# A file whose presence asks the worker to stop once the stage in progress is
+# registered. ralph-ui creates it; so can a person, for a worker run with nohup.
+STOP_FILE=""
+stop_requested() { [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]]; }
+
+# The same, to cut the wait in progress short: what Ctrl-C does in the plain
+# output, for a renderer that owns the keyboard. Consumed when it is seen.
+SKIP_FILE=""
+skip_requested() {
+  [[ -n "$SKIP_FILE" && -e "$SKIP_FILE" ]] || return 1
+  rm -f "$SKIP_FILE"
+  return 0
+}
+
+# ev <type> [jq args...] [object filter]: appends one event. The filter builds
+# the payload from the jq args; the type, the version and the time are added.
+# Never fails: a renderer missing an event must not stop the loop.
+ev() {
+  [[ -n "$EVENTS_FILE" ]] || return 0
+  ui_watch
+  local type="$1" filter='{}'
+  local -a args=()
+  shift
+  # Slicing "$@" is not safe under this IFS: bash joins the slice into one word.
+  while (($# > 1)); do
+    args+=("$1")
+    shift
+  done
+  (($# == 1)) && filter="$1"
+  jq -nc --arg _type "$type" --argjson _ts "$(date +%s)" ${args[@]+"${args[@]}"} \
+    "{v: 1, ts: \$_ts, type: \$_type} + ($filter)" >>"$EVENTS_FILE" 2>/dev/null || true
+  return 0
+}
+
+#endregion
+
+#region renderer -------------------------------------------------------------
+
+# Who draws the run. ralph-ui (ui/, Go) draws it from the event file when there
+# is a terminal for it; otherwise this script's own output does, as always.
+# RALPH_UI: auto (default) | rich | plain.
+RALPH_UI="${RALPH_UI:-auto}"
+UI_PID=""
+UI_SAVED=0 # fds 7 and 8 hold the terminal while ralph-ui has it
+
+ui_bin() { # the ralph-ui to run, or nothing
+  if [[ -n "${RALPH_UI_BIN:-}" ]]; then
+    [[ -x "$RALPH_UI_BIN" ]] && printf '%s' "$RALPH_UI_BIN"
+    return 0
+  fi
+  if [[ -x "$SCRIPT_DIR/ui/bin/ralph-ui" ]]; then
+    printf '%s' "$SCRIPT_DIR/ui/bin/ralph-ui"
+    return 0
+  fi
+  command -v ralph-ui 2>/dev/null || true
+  return 0
+}
+
+ui_choose() { # ui_choose <auto|rich|plain> <ralph-ui path> <terminal 0|1> -> rich | plain
+  if [[ "$1" != "plain" && -n "$2" && "$3" == "1" ]]; then
+    printf 'rich'
+  else
+    printf 'plain'
+  fi
+}
+
+# Hands the terminal to ralph-ui. It is started first, so it keeps the
+# terminal; then this script's own output goes to console.log, where it is
+# kept as the plain transcript of the run.
+ui_start() {
+  local bin tty=0 mode detail="normal"
+  bin="$(ui_bin)"
+  [[ -t 0 && -t 1 && "${TERM:-dumb}" != "dumb" ]] && tty=1
+  mode="$(ui_choose "$RALPH_UI" "$bin" "$tty")"
+  if [[ "$mode" != "rich" ]]; then
+    [[ "$RALPH_UI" == "rich" ]] &&
+      warn "RALPH_UI=rich needs ralph-ui (make -C ui) and a terminal - using the plain output"
+    return 0
+  fi
+  ((RALPH_VERBOSE_STREAM)) || detail="quiet"
+  # Without job control bash gives a background job /dev/null for stdin; the
+  # keys must reach ralph-ui, so it gets the terminal explicitly.
+  "$bin" live --events "$EVENTS_FILE" --pid "$$" --detail "$detail" </dev/tty &
+  UI_PID=$!
+  exec 7>&1 8>&2 >>"$LOG_DIR/console.log" 2>&1
+  UI_SAVED=1
+  ui_init
+  return 0
+}
+
+# A ralph-ui that is gone, whether it never started or died, must not leave the
+# run without an output: the terminal goes back to this script's own. Checked
+# before every event, which costs one kill -0.
+ui_watch() {
+  [[ -n "$UI_PID" ]] || return 0
+  kill -0 "$UI_PID" 2>/dev/null && return 0
+  UI_PID=""
+  ((UI_SAVED)) || return 0
+  exec 1>&7 2>&8 7>&- 8>&-
+  UI_SAVED=0
+  ui_init
+  warn "ralph-ui exited - back to the plain output; what came before is in ${LOG_DIR#"$SCRIPT_DIR"/}/console.log"
+  return 0
+}
+
+# Lets ralph-ui draw the end of the session before the shell prompt comes back.
+ui_wait() {
+  [[ -n "$UI_PID" ]] || return 0
+  local i
+  for ((i = 0; i < 50; i++)); do
+    kill -0 "$UI_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -TERM "$UI_PID" 2>/dev/null || true
+  wait "$UI_PID" 2>/dev/null || true
+  UI_PID=""
+  return 0
+}
+
+# The project as cards, without claiming anything: ralph-ui draws it, or a
+# plain list does.
+# shellcheck disable=SC2016
+BOARD_TEXT_JQ='
+  . as $all
+  | ($pipeline + ["done"])[] as $s
+  | [ $all.tasks[] | select(.stage == $s) ] as $ts
+  | select(($ts | length) > 0)
+  | "\($s) (\($ts | length))",
+    ( $ts[]
+      | "  \(.id)  \(.title)"
+        + (if .needsHuman then "  [needs a person: \(.why)]"
+           elif .sick then "  [sick]"
+           elif .claim != null then "  [\(.claim.worker)]"
+           elif .blockedBy != null then "  [waits for \(.blockedBy)]"
+           else "" end) )'
+
+show_board() {
+  local bin file
+  if ((DRY_RUN)); then
+    mkdir -p "$LOG_DIR"
+    [[ -n "$FAKE_STATE" && -s "$FAKE_STATE" ]] || fake_init
+    RALPH_PROJECT="$(jq -r '.project.id' "$FAKE_STATE")"
+  fi
+  preflight_connection
+  ((DRY_RUN)) || [[ -n "$RALPH_PROJECT" ]] ||
+    die "RALPH_PROJECT is not set - export it, or add it to ${RALPH_ENV_FILE#"$SCRIPT_DIR"/}"
+  api_project || die "the Ralph API at $RALPH_API_URL cannot be reached"
+  ((API_CODE == 200)) || die "the Ralph API answered $API_CODE: $(api_err)"
+
+  file="$(mktemp "${TMPDIR:-/tmp}/ralph-board.XXXXXX")"
+  EVENTS_FILE="$file"
+  ev_session_start
+  ev_counts
+  board_refresh
+  EVENTS_FILE=""
+  bin="$(ui_bin)"
+  if [[ -n "$bin" ]]; then
+    "$bin" board --events "$file" || true
+  else
+    box "RALPH $G_DOT board" "$RALPH_PROJECT"
+    kv "tasks" "$(tasks_line)"
+    printf '\n'
+    jq -r --arg p "$PROJ_PIPELINE" 'select(.type == "board")
+        | . as $b | ($p | split("\n") | map(select(length > 0))) as $pipeline
+        | $b | '"$BOARD_TEXT_JQ" "$file" | sed 's/^/  /'
+  fi
+  rm -f "$file"
+  return 0
+}
+
+watch_run() { # watch_run [run id] - follows a run from another terminal
+  local bin target="$RALPH_DIR/logs"
+  bin="$(ui_bin)"
+  [[ -n "$bin" ]] || die "--watch needs ralph-ui: build it with 'make -C ui'"
+  [[ -n "${1:-}" ]] && target="$RALPH_DIR/logs/$1"
+  exec "$bin" watch "$target"
 }
 
 #endregion
@@ -354,6 +577,32 @@ jqf() {
 # whitespace and collapses runs of it, so an absent field would silently shift
 # every later one.
 US=$'\x1f'
+
+# The rules more than one jq program here needs: the client, the board and the
+# fake server read the spec the same way because they read it from here.
+# shellcheck disable=SC2016
+JQ_LIB='
+# ISO 8601 -> unix seconds. 0 for nothing, and for a date that cannot be read.
+def epoch: (. // "") | tostring
+  | if . == "" or . == "null" then 0
+    else (try (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | sub("\\+0000$"; "Z")
+               | fromdateiso8601) catch 0) end;
+# Only a person can move it: sick, and the doctor gave up or was called twice (spec 5.3).
+def needs_human:
+  .state.sick and (
+    ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
+    or ([.runs[] | select(.stage == "doctor")] | length) >= 2);
+# Over a task list: what waits for a person, and every task that hangs from it.
+def blocked_ids:
+  . as $t
+  | def step: . as $b
+      | [ $t[] | select(.state.stage != "done")
+          | select((.id as $i | $b | index($i)) == null)
+          | select((.spec.dependsOn // []) | any(. as $d | ($b | index($d)) != null))
+          | .id ];
+    [ $t[] | select(needs_human) | .id ]
+    | until((step | length) == 0; . + step);
+'
 
 #endregion
 
@@ -420,6 +669,7 @@ api_err() { # the readable reason of the last answer
 }
 
 PROJ_PIPELINE="" # one stage per line
+PROJ_DESC=""
 CNT_TOTAL=0 CNT_DONE=0 CNT_CLAIMED=0 CNT_SICK=0 CNT_HUMAN=0 CNT_BLOCKED=0
 
 counts_parse() { # counts_parse <json holding a .counts object>
@@ -438,8 +688,57 @@ api_project() {
   api_call GET "/projects/$RALPH_PROJECT" || return 1
   ((API_CODE == 200)) || return 0
   PROJ_PIPELINE="$(jqf "" -r '.pipeline | join("\n")' <<<"$API_BODY")"
+  PROJ_DESC="$(jqf "" -r '.description // ""' <<<"$API_BODY")"
   counts_parse "$API_BODY"
+  ev_counts
   return 0
+}
+
+# The tasks of the project as the cards of the panel (spec, 9) need them: where
+# each one stands, who holds it, and the marks that call for attention. Derived
+# here from the runs, with the same rules as the server, so a renderer needs no
+# API of its own.
+# shellcheck disable=SC2016
+BOARD_JQ="$JQ_LIB"'
+(if type == "array" then . else (.tasks // []) end) as $t
+| ($t | map(select(.state.stage == "done") | .id)) as $done
+| ($t | blocked_ids) as $blocked
+| { tasks: [ $t[]
+    | (.state.claim // null) as $c
+    | { id, title: (.spec.title // ""), priority: (.spec.priority // 0),
+        stage: .state.stage, runs: (.runs | length),
+        sick: (.state.sick // false), needsHuman: needs_human,
+        claim: (if $c != null and ($c.expiresAt | epoch) > $now
+                then {worker: $c.worker, expiresAt: ($c.expiresAt | epoch)} else null end),
+        pr: (.state.pr // null),
+        rejects: ([.runs[] | select(.outcome == "reject")] | length),
+        assumptions: ([.runs[] | (.assumptions // [])[]] | length),
+        doneAt: (if .state.stage == "done" then (.runs | last | .endedAt | epoch) else null end),
+        why: (if .state.sick then ((.runs | last | .body // "") | gsub("[\r\n\t]+"; " ") | .[0:300])
+              else null end),
+        blockedBy: (((.spec.dependsOn // []) - $done) as $deps
+                    | [ $deps[] | select(. as $d | $blocked | index($d) != null) ] | first) } ] }'
+
+# Sends the board. One GET of every task with its runs, so while a worker only
+# waits for work it is asked for with a minimum age: a board a minute old says
+# the same. A failure only means no fresh board this time.
+BOARD_AT=0
+board_refresh() { # board_refresh [minimum age in seconds]
+  [[ -n "$EVENTS_FILE" ]] || return 0
+  local payload now
+  now="$(date +%s)"
+  ((now - BOARD_AT >= ${1:-0})) || return 0
+  api GET "/projects/$RALPH_PROJECT/tasks" && ((API_CODE == 200)) || return 0
+  payload="$(jq -c --argjson now "$now" "$BOARD_JQ" <<<"$API_BODY" 2>/dev/null)" || return 0
+  [[ -n "$payload" ]] || return 0
+  BOARD_AT="$now"
+  ev board --argjson b "$payload" '$b'
+}
+
+ev_counts() {
+  ev project --argjson t "$CNT_TOTAL" --argjson d "$CNT_DONE" --argjson c "$CNT_CLAIMED" \
+    --argjson s "$CNT_SICK" --argjson h "$CNT_HUMAN" --argjson b "$CNT_BLOCKED" \
+    '{counts: {total: $t, done: $d, claimed: $c, sick: $s, needsHuman: $h, blocked: $b}}'
 }
 
 # Asks for work and keeps the whole answer in a file: it is the agent's context.
@@ -492,10 +791,7 @@ work_parse() { # work_parse <file holding the answer>
   STORY_ID="" STORY_TITLE="" STORY_PRIORITY=0 STORY_TIER_RAW=""
   TASK_STAGE="" TASK_PR="" PIPE_FIRST=""
   STAGE_POS=0 STAGE_COUNT=0 STAGE_FIRST=0 STAGE_LAST=0
-  rec="$(jqf "" -r --arg sep "$US" '
-      def epoch: (. // "") | tostring
-        | if . == "" then 0
-          else (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) end;
+  rec="$(jqf "" -r --arg sep "$US" "$JQ_LIB"'
       if .stage == null then
         [ "", (if .finished then "1" else "0" end) ] | join($sep)
       else
@@ -550,7 +846,19 @@ ${C_BOLD}ralph.sh${C_RESET} - autonomous agent loop over the Ralph task API
                          reject|sick|nowork|conflict
     --fast               shorten every sleep to 8s (use with --dry-run)
     --explain            print the resolved config, project and pace decision, then exit
+    --board              show the tasks of the project as a board, then exit
+    --watch [run-id]     follow a run from another terminal (default: the newest)
+    --ui <mode>          auto (default): ralph-ui on a terminal when it is built,
+                         else plain output | rich | plain
+    --plain              same as --ui plain
     -h, --help           this help
+
+  ${C_BOLD}Interface${C_RESET}
+    ralph-ui draws the run on a terminal: build it with  make -C ui  (Go).
+    Keys: q stop after this stage, s skip a wait, v detail, b board, ? help.
+    Every run also writes its events to .ralph/logs/<run>/events.ndjson (docs/events.md),
+    and the plain output to console.log next to it when ralph-ui has the terminal.
+    To stop a worker without a terminal: touch .ralph/logs/<run>/stop
 
   ${C_BOLD}Connection${C_RESET} (environment, or KEY=value lines in ${RALPH_ENV_FILE#"$SCRIPT_DIR"/})
     RALPH_API_URL             base of the Ralph API, e.g. http://localhost:8090/api/ralph
@@ -586,6 +894,11 @@ ${C_BOLD}ralph.sh${C_RESET} - autonomous agent loop over the Ralph task API
     RALPH_PROBE_MODEL         model for that probe (default haiku)
     RALPH_PROBE_TTL_S         how long a probe reading is reused (default 60)
     NO_COLOR / RALPH_COLOR    colour control
+    RALPH_UI                  auto | rich | plain, as --ui
+    RALPH_UI_BIN              the ralph-ui to run (default: ui/bin/ralph-ui, then PATH)
+    RALPH_THEME               dark | light: skip asking the terminal for its background
+    RALPH_ASCII=1             ralph-ui without Unicode glyphs
+    RALPH_NOTIFY / RALPH_LINKS  1 or 0: desktop notifications, hyperlinks
 EOF
 }
 
@@ -648,6 +961,30 @@ parse_args() {
         EXPLAIN=1
         shift
         ;;
+      --board)
+        BOARD=1
+        shift
+        ;;
+      --watch)
+        WATCH=1
+        shift
+        if [[ $# -gt 0 && "$1" != -* && ! "$1" =~ ^[0-9]+$ ]]; then
+          WATCH_RUN="$1"
+          shift
+        fi
+        ;;
+      --ui)
+        RALPH_UI="${2:?--ui needs auto, rich or plain}"
+        shift 2
+        ;;
+      --ui=*)
+        RALPH_UI="${1#*=}"
+        shift
+        ;;
+      --plain)
+        RALPH_UI="plain"
+        shift
+        ;;
       -h | --help)
         usage
         exit 0
@@ -677,6 +1014,8 @@ parse_args() {
   fi
   [[ "$RALPH_WINDOW_BUDGET_PCT" =~ ^[0-9]+$ ]] ||
     die "window budget percent must be an integer"
+  [[ "$RALPH_UI" == "auto" || "$RALPH_UI" == "rich" || "$RALPH_UI" == "plain" ]] ||
+    die "invalid --ui '$RALPH_UI' - must be auto, rich or plain"
   return 0
 }
 
@@ -1055,9 +1394,12 @@ build_prompt() {
 
 #region stream ---------------------------------------------------------------
 
-# stream-json -> pretty lines. `-R` + `fromjson?` makes a malformed or non-JSON
-# line a no-op instead of a fatal jq error. Colours arrive as --arg because jq
-# has no terminal awareness.
+# stream-json -> pretty lines and events. One jq reads the stream and writes
+# both: each event goes out as a line that starts with RS (\x1e), and the awk
+# behind it sends those to the event file and the rest to the terminal. Being
+# one pipe, every event is on disk when the agent ends, before the stage does.
+# `-R` + `fromjson?` makes a malformed or non-JSON line a no-op instead of a
+# fatal jq error. Colours arrive as --arg because jq has no terminal awareness.
 # Tool results are not correlated back to their tool_use id, so with parallel
 # tool calls an "ok" line may visually attach to the wrong tool. Accepted.
 # shellcheck disable=SC2016  # $dim etc. are jq variables, not shell ones
@@ -1066,9 +1408,16 @@ def oneline: (. // "") | tostring | gsub("[\r\n\t]+"; " ") | gsub("  +"; " ");
 def trunc($n): if (. | length) > $n then (.[0:$n - 1] + $ell) else . end;
 # paths carry their meaning at the end, so drop the head instead of the tail
 def trunc_path($n): if (. | length) > $n then ($ell + .[(. | length) - $n + 1:]) else . end;
+def is_path: ((.input.file_path? // "") | length) > 0
+  and ((.input.description? // .input.command? // "") | length) == 0;
+def tool_arg: if is_path then .input.file_path
+  else (.input.description // .input.command // .input.pattern // .input.prompt // "") end
+  | oneline;
+def result_text: (if (.content | type) == "array" then (.content[0].text // "") else (.content // "") end)
+  | oneline;
 
-fromjson? // empty
-| if .type == "system" and .subtype == "init" then
+def pretty:
+  if .type == "system" and .subtype == "init" then
     "    \($dim)session \(.session_id[0:8]) \($dot) model \(.model // "?")\($rst)"
   elif .type == "system" and .subtype == "compact_boundary" then
     "  \($yel)\($dot) context compacted\($rst)"
@@ -1083,37 +1432,90 @@ fromjson? // empty
         elif .type == "thinking" then
           "  \($dim)\($dot) thinking\($ell)\($rst)"
         elif .type == "tool_use" then
-          ( if ((.input.file_path? // "") | length) > 0
-              and ((.input.description? // .input.command? // "") | length) == 0
-            then ((.input.file_path | oneline | trunc_path($narrow)))
-            else ((.input.description // .input.command // .input.pattern
-                   // .input.prompt // "") | oneline | trunc($narrow))
-            end ) as $arg
+          (if is_path then (tool_arg | trunc_path($narrow)) else (tool_arg | trunc($narrow)) end) as $arg
           | "  \($mag)\($tool)\($rst) \($bold)\(.name)\($rst)  \($dim)\($arg)\($rst)"
         else empty end )
   elif .type == "user" then
     ( .message.content[]?
       | select(.type == "tool_result")
       | if (.is_error // false) then
-          "      \($red)\($ret) error\($rst) \($dim)\(
-            (if (.content | type) == "array" then (.content[0].text // "") else (.content // "") end)
-            | oneline | trunc($narrow))\($rst)"
+          "      \($red)\($ret) error\($rst) \($dim)\(result_text | trunc($narrow))\($rst)"
         else "      \($grn)\($ret) ok\($rst)" end )
-  else empty end'
+  else empty end;
 
-format_stream() {
-  if ((RALPH_VERBOSE_STREAM == 0)); then
-    cat >/dev/null
+# The same stream for a renderer: nothing cut to a width, nothing coloured.
+def event:
+  if .type == "system" and .subtype == "init" then
+    {type: "agent.init", session: (.session_id // ""), model: (.model // null)}
+  elif .type == "system" and .subtype == "compact_boundary" then
+    {type: "agent.compact"}
+  elif .type == "rate_limit_event" then
+    ( .rate_limit_info | select(type == "object")
+      | {type: "agent.ratelimit", status: (.status // "allowed"), kind: (.rateLimitType // null),
+         resetsAt: (.resetsAt // null),
+         pct: (if .utilization == null then null else (.utilization * 100 | floor) end)} )
+  elif .type == "assistant" then
+    ( .message.content[]?
+      | if .type == "text" then
+          (.text | oneline | select(length > 0) | {type: "agent.text", text: .[0:2000]})
+        elif .type == "thinking" then {type: "agent.thinking"}
+        elif .type == "tool_use" then
+          {type: "agent.tool", id: (.id // null), name: (.name // "?"), arg: (tool_arg | .[0:500])}
+        else empty end )
+  elif .type == "user" then
+    ( .message.content[]?
+      | select(.type == "tool_result")
+      | {type: "agent.result", id: (.tool_use_id // null), ok: ((.is_error // false) | not),
+         error: (if (.is_error // false) then (result_text | .[0:500]) else null end)} )
+  else empty end
+  | {v: 1, ts: (now | floor)} + .;
+
+# A record of a shape this does not expect is dropped, not reported: the raw
+# log keeps it, and an error here would only be noise on the terminal.
+fromjson? // empty
+| (if $events then ((try event catch empty) | "\u001e" + tojson) else empty end),
+  (if $pretty then (try pretty catch empty) else empty end)'
+
+# A plain-text agent (amp, a custom command): each line is shown as it is, and
+# is an event of its own.
+# shellcheck disable=SC2016
+TEXT_JQ='
+(if $events then ({v: 1, ts: (now | floor), type: "agent.line", text: .[0:2000]}
+                  | "\u001e" + tojson) else empty end),
+(if $pretty then "  \($dim)\($bar)\($rst) \(.)" else empty end)'
+
+# Splits what the jq above writes: events to the event file, the rest to stdout.
+stream_split() {
+  if [[ -z "$EVENTS_FILE" ]]; then
+    cat
     return 0
   fi
-  jq -R --unbuffered -r \
+  awk -v file="$EVENTS_FILE" '
+    /^\036/ { print substr($0, 2) >> file; fflush(file); next }
+    { print; fflush() }'
+}
+
+format_stream() {
+  local events=false pretty=true
+  [[ -n "$EVENTS_FILE" ]] && events=true
+  ((RALPH_VERBOSE_STREAM == 0)) && pretty=false
+  jq -R --unbuffered -r --argjson events "$events" --argjson pretty "$pretty" \
     --arg dim "$C_DIM" --arg rst "$C_RESET" --arg bold "$C_BOLD" \
     --arg cyn "$C_CYAN" --arg mag "$C_MAGENTA" --arg grn "$C_GREEN" \
     --arg red "$C_RED" --arg yel "$C_YELLOW" \
     --arg ell "$G_ELL" --arg dot "$G_DOT" --arg bull "$G_BULL" \
     --arg tool "$G_TOOL" --arg ret "$G_RET" --arg warn "$G_WARN" \
     --argjson wide $((UI_COLS - 8)) --argjson narrow $((UI_COLS - 26)) \
-    "$STREAM_JQ"
+    "$STREAM_JQ" | stream_split
+}
+
+format_text() {
+  local events=false pretty=true
+  [[ -n "$EVENTS_FILE" ]] && events=true
+  ((RALPH_VERBOSE_STREAM == 0)) && pretty=false
+  jq -R --unbuffered -r --argjson events "$events" --argjson pretty "$pretty" \
+    --arg dim "$C_DIM" --arg rst "$C_RESET" --arg bar "$G_V" \
+    "$TEXT_JQ" | stream_split
 }
 
 #endregion
@@ -1293,20 +1695,16 @@ WIN_PCT=0 WIN_RESET=0 WEEK_PCT=0 WEEK_RESET=0 WIN_SRC="none" WIN_FRESH=1 WIN_FET
 # anthropic-ratelimit-unified-* response headers) in ~/.claude.json. That beats
 # any local estimate: it is the real percentage and it sees every other session.
 _probe_config() { # _probe_config <config path>
-  jq -r '
-    def ep: (. // "") | tostring
-      | if . == "" or . == "null" then 0
-        else (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | sub("\\+0000$"; "Z")
-              | fromdateiso8601) end;
+  jq -r "$JQ_LIB"'
     .cachedUsageUtilization as $u
     | if ($u | type) != "object" then empty else . end
     | ($u.utilization.limits? // []) as $L
     | ((([$L[]? | select(.kind == "session")] | first) // $u.utilization.five_hour) // {}) as $s
     | ((([$L[]? | select(.kind == "weekly_all")] | first) // $u.utilization.seven_day) // {}) as $w
     | [ (($s.percent // $s.utilization // 0) | floor),
-        ($s.resets_at | ep),
+        ($s.resets_at | epoch),
         (($w.percent // $w.utilization // 0) | floor),
-        ($w.resets_at | ep),
+        ($w.resets_at | epoch),
         ((($u.fetchedAtMs // 0) / 1000) | floor)
       ] | @tsv' "$1" 2>/dev/null
 }
@@ -1405,6 +1803,18 @@ _ledger_cost_since() { # _ledger_cost_since <epoch> [pending-cost-u]
 
 
 window_probe() { # window_probe [since-epoch] [pending-cost-u]
+  window_read "$@"
+  ev window --arg src "$WIN_SRC" --argjson pct "$WIN_PCT" --argjson reset "$WIN_RESET" \
+    --argjson wpct "$WEEK_PCT" --argjson wreset "$WEEK_RESET" --argjson fresh "$WIN_FRESH" \
+    --argjson fetched "$WIN_FETCHED" --argjson spend "$WIN_SPEND_U" \
+    --argjson budget "$RALPH_WINDOW_BUDGET_PCT" --argjson guard "$RALPH_WEEK_BUDGET_PCT" \
+    '{src: $src, fiveHour: {pct: $pct, resetsAt: $reset}, sevenDay: {pct: $wpct, resetsAt: $wreset},
+      fresh: ($fresh == 1), fetchedAt: $fetched, spendU: $spend,
+      budgetPct: $budget, weekGuardPct: $guard}'
+  return 0
+}
+
+window_read() { # window_read [since-epoch] [pending-cost-u]
   local since="${1:-0}" pending="${2:-0}" cfg tsv now win_start
   local rl_reset="$RL_RESET" rl_pct="$RL_PCT"
   local cfg_pct=0 cfg_reset=0 cfg_week=0 cfg_week_reset=0 cfg_fetched=0
@@ -1614,7 +2024,14 @@ pace_decide() {
   return 0
 }
 
+ev_pace() {
+  ev pace --arg action "$PACE_ACTION" --argjson sleep "${PACE_SLEEP_S:-0}" --arg why "$PACE_WHY" \
+    --argjson est "${PACE_EST:-0}" --arg tier "$STORY_TIER" \
+    '{action: $action, sleepS: $sleep, why: $why, estimatePct: $est, tier: $tier}'
+}
+
 pace_enforce() {
+  [[ "$PACE_ACTION" == "go" ]] || ev_pace
   case "$PACE_ACTION" in
     throttle)
       printf '\n'
@@ -1648,14 +2065,10 @@ pace_enforce() {
 AGENT_PS=()
 AGENT_RC=0
 
-# Always write the raw log; reach stdout only when --quiet is off. Keeps every agent
-# path honouring the flag, and keeps the PIPESTATUS positions identical either way.
+# The raw log is always written and always reaches a formatter, which turns it
+# into events even when --quiet keeps the terminal free of it.
 tee_out() { # tee_out <raw log>
-  if ((RALPH_VERBOSE_STREAM)); then
-    tee "$1"
-  else
-    cat >"$1"
-  fi
+  tee "$1"
 }
 
 # Every agent is started without the API token in its environment: it works
@@ -1683,7 +2096,7 @@ run_agent_claude() { # run_agent_claude <raw log> <stderr log>
     ((rc_fmt != 0 && rc_fmt != 141)) && warn "stream formatter exited $rc_fmt"
   else
     {
-      build_prompt | env -u RALPH_API_TOKEN claude "${flags[@]}" 2>"$errlog" | tee_out "$raw"
+      build_prompt | env -u RALPH_API_TOKEN claude "${flags[@]}" 2>"$errlog" | tee_out "$raw" | format_text
       AGENT_PS=("${PIPESTATUS[@]}")
     } || true
     AGENT_RC="${AGENT_PS[1]:-1}"
@@ -1696,8 +2109,7 @@ run_agent_amp() { # run_agent_amp <raw log> <stderr log>
   AGENT_PS=()
   # amp has no --model, so tiers are ignored.
   {
-    build_prompt | env -u RALPH_API_TOKEN amp --dangerously-allow-all 2>"$errlog" | tee_out "$raw" |
-      awk -v d="$C_DIM" -v r="$C_RESET" -v v="$G_V" '{printf "  %s%s%s %s\n", d, v, r, $0}'
+    build_prompt | env -u RALPH_API_TOKEN amp --dangerously-allow-all 2>"$errlog" | tee_out "$raw" | format_text
     AGENT_PS=("${PIPESTATUS[@]}")
   } || true
   AGENT_RC="${AGENT_PS[1]:-1}"
@@ -1710,8 +2122,7 @@ run_agent_custom() { # run_agent_custom <raw log> <stderr log>
   local raw="$1" errlog="$2"
   AGENT_PS=()
   {
-    build_prompt | env -u RALPH_API_TOKEN sh -c "$RALPH_AGENT_CMD" 2>"$errlog" | tee_out "$raw" |
-      awk -v d="$C_DIM" -v r="$C_RESET" -v v="$G_V" '{printf "  %s%s%s %s\n", d, v, r, $0}'
+    build_prompt | env -u RALPH_API_TOKEN sh -c "$RALPH_AGENT_CMD" 2>"$errlog" | tee_out "$raw" | format_text
     AGENT_PS=("${PIPESTATUS[@]}")
   } || true
   AGENT_RC="${AGENT_PS[1]:-1}"
@@ -1745,25 +2156,9 @@ synthesize_result() { # synthesize_result <raw log>
 FAKE_STATE=""
 
 # shellcheck disable=SC2016
-FAKE_API_JQ='
-def needs_human:
-  .state.sick and (
-    ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
-    or ([.runs[] | select(.stage == "doctor")] | length) >= 2);
-
+FAKE_API_JQ="$JQ_LIB"'
 def active($now):
   .state.claim != null and (.state.claim.expiresAt | fromdateiso8601) > $now;
-
-def blocked_ids:
-  . as $t
-  | def step: . as $b
-      | [ $t[]
-          | select(.state.stage != "done")
-          | select((.id as $i | $b | index($i)) == null)
-          | select((.spec.dependsOn // []) | any(. as $d | ($b | index($d)) != null))
-          | .id ];
-    [ $t[] | select(needs_human) | .id ]
-    | until((step | length) == 0; . + step);
 
 def counts($now):
   { total: length,
@@ -2222,6 +2617,49 @@ iteration_summary() {
   return 0
 }
 
+ev_stage_start() {
+  ev stage.start --argjson iter "$ITER" --argjson max "$MAX_ITERATIONS" \
+    --argjson attempt "$((ATTEMPT + 1))" --arg id "$STORY_ID" --arg title "$STORY_TITLE" \
+    --argjson prio "${STORY_PRIORITY:-0}" --arg tier "$STORY_TIER" --arg pr "$TASK_PR" \
+    --arg stage "$WORK_STAGE" --argjson pos "$STAGE_POS" --argjson count "$STAGE_COUNT" \
+    --arg tstage "$TASK_STAGE" --arg model "$MODEL" --arg tool "$TOOL" \
+    --argjson claim "${CLAIM_EXPIRES:-0}" --arg raw "${RAW_LOG:-}" \
+    '{iter: $iter, maxIterations: $max, attempt: $attempt,
+      task: {id: $id, title: $title, priority: $prio, tier: $tier,
+             pr: (if $pr == "" then null else $pr end)},
+      stage: $stage, pos: $pos, count: $count, taskStage: $tstage,
+      model: $model, tool: $tool, claimExpires: $claim, stream: $raw}'
+}
+
+# What the attempt came to. What the agent handed in travels too, as sent to
+# the API: the assumptions, the feedback of a reject, the summary.
+ev_stage_end() {
+  local sent="${RESULT_JSON:-}"
+  [[ -n "$sent" ]] || sent='{}'
+  ev stage.end --argjson iter "$ITER" --argjson attempt "$((ATTEMPT + 1))" \
+    --arg id "$STORY_ID" --arg stage "$WORK_STAGE" --arg class "$ITER_CLASS" \
+    --arg subtype "$RES_SUBTYPE" --arg outcome "$ITER_OUTCOME" --arg next "$ITER_NEXT" \
+    --argjson byscript "$ITER_BY_SCRIPT" --arg err "${RESULT_ERR:-}" \
+    --argjson dur "$ITER_DUR_S" --argjson turns "${RES_TURNS:-0}" \
+    --argjson cost "${RES_COST_U:-0}" --argjson total "$RUN_COST_U" \
+    --argjson tin "${RES_IN:-0}" --argjson tout "${RES_OUT:-0}" \
+    --argjson cr "${RES_CR:-0}" --argjson cc "${RES_CC:-0}" \
+    --arg model "${RES_MODEL:-$MODEL}" --arg commit "${ITER_COMMIT:-}" \
+    --arg subject "$([[ -n "${ITER_COMMIT:-}" ]] && git_subject)" \
+    --argjson delta "${WIN_DELTA:-0}" --arg pr "$TASK_PR" --argjson sent "$sent" \
+    '{iter: $iter, attempt: $attempt, task: $id, stage: $stage,
+      class: $class, subtype: $subtype, outcome: $outcome,
+      next: (if $next == "" then null else $next end),
+      byScript: ($byscript == 1), error: (if $err == "" then null else $err end),
+      durS: $dur, turns: $turns, costU: $cost, runCostU: $total,
+      tokens: {in: $tin, out: $tout, cacheRead: $cr, cacheWrite: $cc},
+      model: $model, commit: (if $commit == "" then null else {sha: $commit, subject: $subject} end),
+      winDelta: $delta,
+      pr: ($sent.pr // (if $pr == "" then null else $pr end)),
+      body: ($sent.body // null), assumptions: ($sent.assumptions // []),
+      summary: ($sent.summary // null)}'
+}
+
 # A retry keeps the claim, so it is only allowed while the claim leaves room to
 # finish the stage. Past that point the task may already be in another worker's
 # hands, on the same branch, and a late agent would push on top of it. The 409
@@ -2243,10 +2681,12 @@ settle() {
       ITER_OUTCOME="$RESULT_OUTCOME"
       ITER_NEXT="$RUN_NEXT"
       api_project || true
+      board_refresh
       return 0
       ;;
     2)
       ITER_OUTCOME="conflict"
+      board_refresh
       return 0
       ;;
     1) return 1 ;;
@@ -2278,9 +2718,10 @@ run_iteration() {
       RESULT_FILE="${RESULT_FILE%.json}.retry$ATTEMPT.json"
     }
     rm -f "$RESULT_FILE"
-    RESULT_ERR=""
+    RESULT_ERR="" RESULT_JSON=""
 
     iteration_header
+    ev_stage_start
     start="$(date +%s)"
     if ((DRY_RUN)); then
       run_agent_fake "$RAW_LOG" "$ERR_LOG"
@@ -2400,6 +2841,7 @@ run_iteration() {
     fi
 
     iteration_summary
+    ev_stage_end
     ledger_append
 
     case "$verdict" in
@@ -2505,14 +2947,58 @@ run_header() {
   return 0
 }
 
+ev_session_start() {
+  local api="$RALPH_API_URL" version=""
+  ((DRY_RUN)) && api="fake"
+  [[ "$TOOL" == "claude" ]] && version="$CLAUDE_VERSION"
+  ev session.start --arg run "$RUN_ID" --arg project "$RALPH_PROJECT" --arg desc "$PROJ_DESC" \
+    --arg worker "$RALPH_WORKER" --arg api "$api" \
+    --arg branch "$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)" \
+    --arg pipeline "$PROJ_PIPELINE" --arg tool "$TOOL" --arg version "$version" \
+    --arg low "$RALPH_MODEL_LOW" --arg med "$RALPH_MODEL_MED" --arg high "$RALPH_MODEL_HIGH" \
+    --arg pace "$RALPH_PACE" --arg paceoff "$PACE_OFF_REASON" \
+    --argjson budget "$RALPH_WINDOW_BUDGET_PCT" --argjson guard "$RALPH_WEEK_BUDGET_PCT" \
+    --argjson max "$MAX_ITERATIONS" --argjson dry "$DRY_RUN" --arg scenario "$SCENARIO" \
+    --arg logs "${LOG_DIR#"$SCRIPT_DIR"/}" --arg story "$FORCE_STORY" --argjson pid "$$" \
+    --arg stop "$STOP_FILE" --arg skip "$SKIP_FILE" \
+    '{run: $run, project: $project, description: $desc, worker: $worker, api: $api,
+      branch: $branch, pipeline: ($pipeline | split("\n") | map(select(length > 0))),
+      tool: $tool, toolVersion: $version, tiers: {low: $low, med: $med, high: $high},
+      pace: {mode: $pace, budgetPct: $budget, weekGuardPct: $guard,
+             reason: (if $paceoff == "" then null else $paceoff end)},
+      maxIterations: $max, dryRun: ($dry == 1),
+      scenario: (if $dry == 1 then $scenario else null end),
+      story: (if $story == "" then null else $story end), logs: $logs, pid: $pid,
+      control: {stop: $stop, skip: $skip}}'
+}
+
+ev_session_end() { # ev_session_end <state> <agent runs>
+  local next=""
+  [[ "$1" == "incomplete" || "$1" == "exhausted" || "$1" == "stopped" ]] && next="./ralph.sh --tool $TOOL $MAX_ITERATIONS"
+  ev session.end --arg state "$1" --argjson ran "$2" --argjson ok "$RUN_OK" \
+    --argjson failed "$RUN_FAIL" --argjson retried "$RUN_RETRIED" --argjson cost "$RUN_COST_U" \
+    --argjson tin "$RUN_IN" --argjson tout "$RUN_OUT" --argjson cr "$RUN_CR" --argjson cc "$RUN_CC" \
+    --argjson wall "$(($(date +%s) - RUN_START))" --argjson agent "$RUN_AGENT_S" \
+    --argjson throttled "$RUN_THROTTLED_S" \
+    --argjson nl "$TIER_COUNT_low" --argjson cl "$TIER_COST_low" \
+    --argjson nm "$TIER_COUNT_med" --argjson cm "$TIER_COST_med" \
+    --argjson nh "$TIER_COUNT_high" --argjson ch "$TIER_COST_high" \
+    --arg ledger "${LEDGER_SHOWN#"$SCRIPT_DIR"/}" --arg logs "${LOG_DIR#"$SCRIPT_DIR"/}" \
+    --arg next "$next" \
+    '{state: $state, ran: $ran, registered: $ok, failed: $failed, retried: $retried,
+      costU: $cost, tokens: {in: $tin, out: $tout, cacheRead: $cr, cacheWrite: $cc},
+      wallS: $wall, agentS: $agent, throttledS: $throttled,
+      tiers: {low: {runs: $nl, costU: $cl}, med: {runs: $nm, costU: $cm},
+              high: {runs: $nh, costU: $ch}},
+      ledger: $ledger, logs: $logs, next: (if $next == "" then null else $next end)}'
+}
+
 # The tasks nobody but a person can move: sick, and either the doctor gave up or
 # it has already been called twice.
 # shellcheck disable=SC2016
-NEEDS_HUMAN_JQ='
+NEEDS_HUMAN_JQ="$JQ_LIB"'
   .tasks[]
-  | select(.state.sick and (
-      ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
-      or ([.runs[] | select(.stage == "doctor")] | length) >= 2))
+  | select(needs_human)
   | [ .id, .state.stage,
       ((.runs | last | .body // "") | gsub("[\r\n\t]+"; " ") | .[0:120]) ] | join($sep)'
 
@@ -2550,6 +3036,10 @@ final_summary() { # final_summary <state> <agent runs>
       title="RALPH $G_DOT STUCK"
       col="$C_RED"
       ;;
+    stopped)
+      title="RALPH $G_DOT STOPPED"
+      col="$C_YELLOW"
+      ;;
     *)
       title="RALPH $G_DOT INCOMPLETE"
       col="$C_YELLOW"
@@ -2557,6 +3047,7 @@ final_summary() { # final_summary <state> <agent runs>
   esac
 
   [[ "$state" == "api" ]] || api_project || true
+  ev_session_end "$state" "$ran"
 
   printf '\n'
   box "$title" "$ran iterations $G_DOT $(fmt_dur $(($(date +%s) - RUN_START)))" "$col"
@@ -2579,7 +3070,7 @@ final_summary() { # final_summary <state> <agent runs>
     printf '\n'
     hr "waiting for a person"
     waiting_for_a_person
-  elif [[ "$state" == "incomplete" || "$state" == "exhausted" ]]; then
+  elif [[ "$state" == "incomplete" || "$state" == "exhausted" || "$state" == "stopped" ]]; then
     kv "next" "./ralph.sh --tool $TOOL $MAX_ITERATIONS"
   fi
   ((DRY_RUN)) && warn "dry run: nothing above touched the API"
@@ -2665,15 +3156,26 @@ ask_for_work() {
         ;;
     esac
     [[ -n "$WORK_STAGE" ]] && return 0
+    ev work.none --argjson finished "$WORK_FINISHED" --argjson t "$CNT_TOTAL" \
+      --argjson d "$CNT_DONE" --argjson c "$CNT_CLAIMED" --argjson s "$CNT_SICK" \
+      --argjson h "$CNT_HUMAN" --argjson b "$CNT_BLOCKED" --argjson idle "$RALPH_IDLE_S" \
+      '{finished: ($finished == 1), idleS: $idle,
+        counts: {total: $t, done: $d, claimed: $c, sick: $s, needsHuman: $h, blocked: $b}}'
     if ((WORK_FINISHED)); then
       # Done, or everything left hangs from a task that waits for a person.
+      board_refresh
       ASK_STATE="complete"
       ((CNT_BLOCKED > 0)) && ASK_STATE="blocked"
       return 1
     fi
+    board_refresh 60
     printf '\n'
     note "nothing eligible right now ($CNT_CLAIMED claimed by other workers, $((CNT_TOTAL - CNT_DONE)) not done) - asking again in $(fmt_dur "$RALPH_IDLE_S")"
     countdown "$RALPH_IDLE_S" "idle" "$C_CYAN"
+    if stop_requested; then
+      ASK_STATE="stopped"
+      return 1
+    fi
   done
 }
 
@@ -2718,6 +3220,12 @@ main() {
     import_prd "$IMPORT_FILE" || exit 1
     exit 0
   fi
+  ((WATCH)) && watch_run "$WATCH_RUN"
+  if ((BOARD)); then
+    command -v jq >/dev/null || die "jq is required (brew install jq)"
+    show_board
+    exit 0
+  fi
 
   preflight
   mkdir -p "$LOG_DIR"
@@ -2728,16 +3236,29 @@ main() {
     exit 0
   fi
 
+  EVENTS_FILE="$LOG_DIR/events.ndjson"
+  STOP_FILE="$LOG_DIR/stop" SKIP_FILE="$LOG_DIR/skip"
+  : >"$EVENTS_FILE"
+  rm -f "$STOP_FILE" "$SKIP_FILE"
+  ui_start
+  ev_session_start
+  ev_counts
+  board_refresh
   window_probe
   run_header
 
   local ran=0 state="incomplete" rc
   for ((ITER = 1; ITER <= MAX_ITERATIONS; ITER++)); do
+    if stop_requested; then
+      state="stopped"
+      break
+    fi
     # Pace before asking for work, never after: a claim must not be slept away.
     # The estimate uses the tier of the previous iteration; the next task is
     # not known until the server hands it out.
     pace_decide
     if [[ "$PACE_ACTION" == "stop" ]]; then
+      ev_pace
       printf '\n'
       hr "pacing: stopping"
       kv "reason" "$PACE_WHY"
@@ -2747,6 +3268,10 @@ main() {
     pace_enforce
     if [[ "$PACE_ACTION" == "stop" ]]; then
       state="exhausted"
+      break
+    fi
+    if stop_requested; then
+      state="stopped"
       break
     fi
 
@@ -2794,6 +3319,7 @@ main() {
 
   case "$state" in
     complete) exit 0 ;;
+    stopped) exit 0 ;; # a person asked for it: a supervisor must not start it again
     exhausted) exit 2 ;;
     blocked) exit 3 ;;
     api) exit 6 ;;

@@ -10,13 +10,19 @@ Ralph is an autonomous agent loop. `ralph.sh` runs an AI coding tool (Amp or Cla
 # Tests. No network: the API is faked and the agent is a shell script.
 ./tests/api.test.sh
 ./tests/window.test.sh
+./tests/events.test.sh
+make -C ui test        # ralph-ui; its view tests replay real dry runs of ralph.sh
 
 # Lint
-shellcheck -x -S style ralph.sh tests/api.test.sh
+shellcheck -x -S style ralph.sh tests/api.test.sh tests/events.test.sh
 
 # Iterate on ralph.sh output with no API calls
 ./ralph.sh --dry-run --fast
 ./ralph.sh --dry-run --scenario throttle|hardstop|ratelimit|maxturns|complete|reject|sick|nowork|conflict
+
+# Build ralph-ui, then see a past run as it draws it
+make -C ui
+ui/bin/ralph-ui replay .ralph/logs/<run>
 
 # Show the resolved config, the project and the pace decision. Claims nothing.
 ./ralph.sh --explain
@@ -33,6 +39,8 @@ shellcheck -x -S style ralph.sh tests/api.test.sh
 - `prd.json.example` - A PRD in the import format. It also seeds the fake API of a dry run
 - `docs/central-prd-spec.md`, `docs/task.schema.json` - The API the loop talks to
 - `skills/` - `prd` writes a PRD, `ralph` converts it to `prd.json` and imports it
+- `docs/events.md` - The event stream `ralph.sh` writes for its renderers
+- `ui/` - `ralph-ui` (Go, Bubble Tea): `event` decodes the stream, `state` folds it, `view` draws it, `app` runs it
 
 ## Patterns
 
@@ -67,3 +75,17 @@ shellcheck -x -S style ralph.sh tests/api.test.sh
   cannot abort the run.
 - Rate-limit state comes from the API rate-limit headers, the stream's own
   `rate_limit_event`, and `~/.claude.json` → `cachedUsageUtilization`, in that order.
+
+### Events and ralph-ui
+
+- Everything a renderer shows is an event: `ev <type> [jq args] <filter>` in
+  `ralph.sh`, catalogued in `docs/events.md`. A new event, or a field, is a change to
+  `ralph.sh`, `docs/events.md` and `ui/internal/event` together.
+- ralph-ui only reads `events.ndjson`. It asks the loop for something through the files
+  in `session.start.control` (`stop`, `skip`), never through the API or a signal of its
+  own; Ctrl-C is passed on as the terminal would.
+- The plain output stays complete without ralph-ui. With it, the plain output goes to
+  `console.log`, so `ralph.sh` re-runs `ui_init` and sees no terminal from then on.
+- `ui/internal/view` returns strings for a given width and is tested without a terminal.
+  Assert on data (ids, numbers, the feedback text) and on every line fitting the width,
+  never on the wording.

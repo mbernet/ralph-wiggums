@@ -26,6 +26,7 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/) and on 
 - [`gh`](https://cli.github.com) authenticated, with permission to open and merge pull requests: the agents use it, and the API only accepts GitHub pull request URLs
 - `jq` and `curl` installed (`brew install jq` on macOS)
 - `bash` 3.2 or newer (stock macOS bash is fine)
+- Optional: [Go](https://go.dev) 1.24 or newer, to build `ralph-ui`, the terminal interface (`make -C ui`). Without it Ralph prints its plain output
 - A clone of your project **for each worker**. A worker switches branches between stages, so it must not share a working copy with a person
 
 ## Setup
@@ -181,7 +182,8 @@ If the agent ends without a result (a rate limit, a crash), the worker keeps its
 | `--fast` | shorten every sleep to 8s (use with `--dry-run`) |
 | `--explain` | print the resolved config, project and pace decision, then exit |
 
-Exit codes: `0` nothing is left to do, `1` max iterations reached, `2` rate-limit window
+Exit codes: `0` nothing is left to do, or a person asked the worker to stop (`q`, or the
+`stop` file), `1` max iterations reached, `2` rate-limit window
 exhausted, `3` what is left waits for a person, `4` configuration or authentication
 error, `5` the agent crashed twice in a row, `6` the Ralph API cannot be reached.
 
@@ -302,10 +304,35 @@ subscription usage, which says nothing about amp's consumption.
 
 ## Output and Logs
 
-Each iteration streams what the agent is doing (tool calls, results, narration), then
-prints a summary with duration, turns, tokens, cost, the commit created, what became of
-the stage (`US-002  review_code ✓ pass → merge`), how many tasks are done, and the
-window state.
+On a terminal, and once `ralph-ui` is built (`make -C ui`), the run is drawn by it.
+What happens goes up the scrollback: each stage as a card with its verdict
+(`US-002  review_code  ✓ pass → merge`), what it cost, and what a person should read,
+which is the assumptions, the feedback of a reject and the diagnosis of a sick task. A
+panel stays at the bottom, redrawn as the run goes: the pipeline with the stage in
+progress lit, the tools the agent is using, the claim's time left, the countdown of a
+wait, the tasks done, the 5h and 7d windows, the other workers and what needs you.
+
+| Key | What it does |
+|-----|--------------|
+| `q` | Stop once the stage in progress is registered. `q` again takes it back |
+| `s` | Skip the wait in progress |
+| `v` | Detail of the agent's activity: quiet, normal, verbose |
+| `b` | Print the board of the project |
+| `?` | Help |
+| `Ctrl-C` | Passed to the loop as in the plain output: twice in a row aborts |
+
+```bash
+./ralph.sh --board             # the project as a board: a column per stage
+./ralph.sh --watch             # follow the newest run from another terminal
+./ralph.sh --plain             # the plain output, even with ralph-ui built
+```
+
+Without a terminal, or without `ralph-ui`, each iteration streams what the agent is
+doing (tool calls, results, narration), then prints a summary with duration, turns,
+tokens, cost, the commit created, what became of the stage, how many tasks are done,
+and the window state. Either way every run writes its events to `events.ndjson`
+([docs/events.md](docs/events.md)), so a run started with `nohup` can be followed with
+`--watch` and stopped with `touch .ralph/logs/<run>/stop`.
 
 ```
 .ralph/
@@ -315,7 +342,9 @@ window state.
     ├── iter-05.work.json           # what the API handed out: the agent's context
     ├── iter-05.result.json         # what the agent answered
     ├── iter-05.stream.jsonl        # raw stream-json, full fidelity
-    └── iter-05.stderr.log
+    ├── iter-05.stderr.log
+    ├── events.ndjson               # what the run did, for a renderer (docs/events.md)
+    └── console.log                 # the plain output, when ralph-ui had the terminal
 ```
 
 `.ralph/` is gitignored. Colour follows `NO_COLOR` / `RALPH_COLOR=always|never` and is
@@ -341,6 +370,8 @@ To iterate on the output without spending anything:
 | `prd.json` | The PRD being prepared for an import (gitignored) |
 | `prd.json.example` | Example PRD in the import format |
 | `docs/central-prd-spec.md` | Spec of the task API |
+| `docs/events.md` | The event stream a run writes for its renderers |
+| `ui/` | `ralph-ui`, the terminal interface, in Go (`make -C ui`) |
 | `.ralph/env` | Connection settings (gitignored) |
 | `.ralph/usage.jsonl` | Usage ledger: one line per agent run (gitignored) |
 | `.ralph/logs/` | Per-iteration context, result and raw transcript (gitignored) |
@@ -430,8 +461,9 @@ close - `replay.sh` is the place to start: it shows the server's own reading nex
 percentage that run recorded at the time. The two drifting apart means Ralph was pacing
 on a source that had gone cold.
 
-Run the test suites with `./tests/api.test.sh` and `./tests/window.test.sh`. Neither
-touches the network.
+Run the test suites with `./tests/api.test.sh`, `./tests/window.test.sh` and
+`./tests/events.test.sh`, and those of `ralph-ui` with `make -C ui test`. None touches the
+network. To see a past run again as `ralph-ui` drew it: `ui/bin/ralph-ui replay .ralph/logs/<run>`.
 
 ## Customizing the Prompts
 
