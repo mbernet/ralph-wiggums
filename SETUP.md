@@ -26,7 +26,7 @@ Run each check and fix what you can. Install what is missing with the machine's 
 - `jq`, `curl`, `git` and `gh` are installed, and `gh auth status` is logged in.
 - `gh repo view <repo> --json viewerPermission` answers `WRITE`, `MAINTAIN` or `ADMIN`: the agents push branches and merge.
 - The agent CLI answers: `claude --version` (2.1 or newer) or `amp --version`.
-- The project's own build and test commands work from a non-interactive shell, because that is where the agents run them. A tool found only through an interactive shell profile (a `PATH` line in `~/.zshrc`) is invisible to them: put it on the `PATH` the worker starts with.
+- The project's own test command runs from a non-interactive shell, because that is where the agents run it. Take it from the README, the spec or the CI config, run it in the project, and install what it needs until it starts: finding no tests yet is fine, a missing tool is not. A tool found only through an interactive shell profile (a `PATH` line in `~/.zshrc`) is invisible to the agents: put it on the `PATH` the worker starts with.
 - The token works: `curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer <token>" <host>/api/ralph/projects/<project>` answers `404` or `200`. `404` is a new project. `200` means the project already exists and this machine joins it as one more worker (see step 4). `401` means the token is wrong.
 - Optional: `go` 1.24 or newer, to build `ralph-ui`, the terminal interface. When `go` is missing, skip `ralph-ui` rather than install it: Ralph prints plain output.
 
