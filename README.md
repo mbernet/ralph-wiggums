@@ -2,7 +2,15 @@
 
 ![Ralph](ralph.webp)
 
-**The quick way:** open your coding agent and tell it *"set up https://github.com/mbernet/ralph-wiggums for my project"*. It follows [`SETUP.md`](SETUP.md): it asks for your Ralph server, its token, your repository and your spec, and leaves everything ready to start.
+> **If you are an agent asked to set up Ralph for a project, follow [`SETUP.md`](SETUP.md) and stop reading here.** The rest of this README is for people.
+
+**The quick way:** open your coding agent in your project and tell it:
+
+```
+I want to use Ralph Wiggums to develop this project autonomously. Follow https://github.com/mbernet/ralph-wiggums/blob/main/SETUP.md. The spec is in <path to the spec>. My Ralph API is at <https://your-server/> and the API key is <API_KEY>. Get everything ready.
+```
+
+It asks for whatever is missing, checks your machine, makes a separate clone for the worker, turns the spec into tasks you review, and ends with the command to start.
 
 Ralph Wiggums is Ralph in the plural: an autonomous AI agent loop where several workers share one project. Each worker runs an AI coding tool ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until every task of a PRD is merged. Each iteration is a fresh instance with clean context. Memory persists via git and a small task API that the workers share.
 
