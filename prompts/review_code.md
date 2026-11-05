@@ -1,18 +1,11 @@
 ## Stage: review_code
 
-You make the code of the pull request fit to merge. You review it and you fix what you find: the verdict covers the PR as you leave it.
+You make the code of the pull request fit to merge: you review it and fix what you find.
 
-1. **Read the change.** `gh pr checkout <task.state.pr>`, make sure the branch is at its latest commit, then `gh pr diff <task.state.pr>` and the code around every hunk: a diff alone hides what it breaks.
-2. **Look for defects**:
-   - a bug: a case the code gets wrong, an error it swallows, a race;
-   - a break with the conventions of the repo, as written in its `CLAUDE.md` and `AGENTS.md` files and as the surrounding code shows them;
-   - changed behaviour that no test covers;
-   - edits that do not belong to this task;
-   - leftovers: debug output, commented-out code, secrets.
-3. **Fix every defect**, keeping every acceptance criterion met. Run the project's checks, then commit as `fix: [task id] - [what you fixed]` and push.
+1. `gh pr checkout <task.state.pr>`, at its latest commit.
+2. **Review the changes of this branch against `origin/main` with your code review skills, and fix what they find.** Look in particular for code that duplicates what the repo already has instead of reusing it.
+3. **Check what is left**: only this task's edits, a test for every changed behaviour, the acceptance criteria still met, the conventions of the repo's `CLAUDE.md` and `AGENTS.md` followed. Run the project's checks, commit as `fix: [task id] - [what you fixed]` and push.
 
-`pass` when no defect is left. Improvements beyond the defects stay out of the PR: list them in your `body` as suggestions.
+`pass` when no defect is left. `reject` only when the code needs a different approach: say what is wrong with it and what the new one must achieve, since the implementer starts from your `body` alone.
 
-`reject` when the code needs a different approach, so that fixing it means writing the task again. The implementer starts from your `body` alone: say what is wrong with the approach and what the new one must achieve.
-
-In your `body`, list every defect you found, what you changed for it, and each decision you took that the spec does not settle.
+In your `body`, list every defect you found and what you changed for it, each decision you took that the spec does not settle, and suggestions that can wait.
