@@ -9,4 +9,4 @@ The pull request is reviewed. You get it into `main` and write down what the pro
 
 The stage is done when the pull request is `MERGED`. Only then `pass`.
 
-Your `summary` is the memory of the project: every later task receives it. Distil the `body` of each run into what was done, in two or three lines, and what an agent working on this code later should know: patterns, conventions, gotchas. Leave out the story of how the task got there.
+Your `summary` is the memory of the project: every later task receives it. Distil the `body` of each run into what was done and where it lives in the code, in two or three lines. Leave out the story of how the task got there; lessons go in `LEARNINGS.md`.

@@ -8,7 +8,8 @@ You make the code of the pull request fit to merge. You review it and you fix wh
    - a break with the conventions of the repo, as written in its `CLAUDE.md` and `AGENTS.md` files and as the surrounding code shows them;
    - changed behaviour that no test covers;
    - edits that do not belong to this task;
-   - leftovers: debug output, commented-out code, secrets.
+   - leftovers: debug output, commented-out code, secrets;
+   - a lesson added to `LEARNINGS.md` that is not one, as the shared rules define it: delete it.
 3. **Fix every defect**, keeping every acceptance criterion met. Run the project's checks, then commit as `fix: [task id] - [what you fixed]` and push.
 
 `pass` when no defect is left. Improvements beyond the defects stay out of the PR: list them in your `body` as suggestions.
