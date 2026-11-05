@@ -213,7 +213,7 @@ check "a stop request lets the stage in progress finish, and no other starts" "i
   "$(ev_q 'map(select(.type == "stage.end") | .stage) | join(" ")')"
 check "the stage is registered on the server" "review_functional" "$(jq -r '.tasks[0].state.stage' "$FAKE_STATE")"
 check "the session ends as stopped" "stopped" "$(ev_q 'map(select(.type == "session.end")) | first | .state')"
-check "which is not a success" "1" "$LOOP_RC"
+check "and the worker exits 0: a stop a person asked for is not a failure" "0" "$LOOP_RC"
 
 printf '\nwaits and notices\n'
 
@@ -241,14 +241,76 @@ check "a pacing decision is an event" "throttle ahead of even pace" \
 
 : >"$EVENTS_FILE"
 SKIP_FILE="$TMP/skip"
-: >"$SKIP_FILE"
+RUN_THROTTLED_S=0
+(
+  sleep 1
+  : >"$SKIP_FILE"
+) &
 started="$(date +%s)"
 countdown 60 "throttle" >/dev/null 2>&1
 check "a skip request ends a wait at once" "1" "$(($(date +%s) - started < 5))"
 check "and is consumed" "no" "$([[ -e "$SKIP_FILE" ]] && echo yes || echo no)"
 check "the wait says it was cut short" "true" \
   "$(ev_q 'map(select(.type == "wait.end")) | first | .skipped')"
+check "only the time actually waited counts as throttled" "1" "$((RUN_THROTTLED_S < 5))"
+
+# A skip asked for at the very end of a wait must not cut the next one short.
+: >"$SKIP_FILE"
+started="$(date +%s)"
+countdown 2 "backoff" >/dev/null 2>&1
+check "a skip left over from an earlier wait is dropped" "1" "$(($(date +%s) - started >= 2))"
 SKIP_FILE=""
+
+printf '\nthe formatter holds\n'
+
+: >"$EVENTS_FILE"
+{
+  printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","utilization":{"a":1}}}'
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":"not an object"}]}}'
+  printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"a.go"}}]}}'
+} | format_stream >/dev/null 2>"$TMP/fmt.err"
+check "a line it cannot read is skipped, and the stream goes on" "Edit" \
+  "$(ev_q 'map(select(.type == "agent.tool")) | last | .name')"
+check "without a word on the terminal" "0" "$(wc -c <"$TMP/fmt.err" | tr -d ' ')"
+
+printf '\nthe board, when nothing changes\n'
+
+: >"$EVENTS_FILE"
+FAKE_STATE="$TMP/idleboard.json"
+SCENARIO=mixed fake_init "$TMP/one.json"
+BOARD_AT=0
+board_refresh 60
+board_refresh 60
+check "while waiting for work it is sent at most once a minute" "1" \
+  "$(ev_q 'map(select(.type == "board")) | length')"
+board_refresh
+check "after a run it is always sent" "2" "$(ev_q 'map(select(.type == "board")) | length')"
+
+# shellcheck disable=SC2153  # BOARD_JQ comes from the sourced ralph.sh
+check "a task with a timestamp that cannot be read still makes the board" "2 0" \
+  "$(jq -c --argjson now 1 "$BOARD_JQ" <<<'{"tasks":[
+      {"id":"A","spec":{},"state":{"stage":"done","sick":false,"claim":null},"runs":[{"outcome":"pass","endedAt":"yesterday"}]},
+      {"id":"B","spec":{},"state":{"stage":"implement","sick":false,"claim":null},"runs":[]}]}' |
+     jq -r '"\(.tasks | length) \(.tasks[0].doneAt)"')"
+EVENTS_FILE=""
+
+printf '\nwhen ralph-ui dies\n'
+
+# ralph-ui had the terminal (here: a file), ralph.sh wrote to console.log. A
+# dead ralph-ui gives the terminal back to the plain output.
+(
+  exec 7>"$TMP/terminal" 8>&7 >"$TMP/console" 2>&1
+  true &
+  UI_PID=$!
+  wait "$UI_PID"
+  UI_SAVED=1
+  EVENTS_FILE="$TMP/dead.ndjson"
+  ev notice --arg level info --arg text "first" '{level: $level, text: $text}'
+  printf 'after\n'
+)
+check "the plain output comes back to the terminal" "yes" \
+  "$(grep -q after "$TMP/terminal" && echo yes || echo no)"
+check "and says why" "yes" "$(grep -q 'ralph-ui' "$TMP/terminal" && echo yes || echo no)"
 EVENTS_FILE=""
 
 printf '\nchoosing the renderer\n'

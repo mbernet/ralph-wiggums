@@ -182,7 +182,8 @@ If the agent ends without a result (a rate limit, a crash), the worker keeps its
 | `--fast` | shorten every sleep to 8s (use with `--dry-run`) |
 | `--explain` | print the resolved config, project and pace decision, then exit |
 
-Exit codes: `0` nothing is left to do, `1` max iterations reached, `2` rate-limit window
+Exit codes: `0` nothing is left to do, or a person asked the worker to stop (`q`, or the
+`stop` file), `1` max iterations reached, `2` rate-limit window
 exhausted, `3` what is left waits for a person, `4` configuration or authentication
 error, `5` the agent crashed twice in a row, `6` the Ralph API cannot be reached.
 

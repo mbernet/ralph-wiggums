@@ -314,41 +314,38 @@ countdown() { # countdown <seconds> <label> [colour]
   local total="$1" label="$2" col="${3:-$C_YELLOW}"
   ((total <= 0)) && return 0
   ((FAST)) && total=8
-  local end=$(($(date +%s) + total)) left pct f w=26 skipped=0
+  local start end left pct f w=26 skipped=0
+  start="$(date +%s)"
+  end=$((start + total))
+  # A skip asked for as an earlier wait ended on its own is not for this one.
+  [[ -n "$SKIP_FILE" ]] && rm -f "$SKIP_FILE"
   ev wait.start --arg kind "$label" --argjson s "$total" --argjson until "$end" \
     '{kind: $kind, seconds: $s, until: $until}'
-  if ((UI_TTY == 0)); then
-    note "$label: sleeping $(fmt_dur "$total")"
-    while (($(date +%s) < end)); do
-      if ((RALPH_INTERRUPTED)) || stop_ends_wait "$label" || skip_requested; then
-        RALPH_INTERRUPTED=0 skipped=1
-        break
-      fi
-      sleep 1
-    done
-    RUN_THROTTLED_S=$((RUN_THROTTLED_S + total))
-    ev wait.end --arg kind "$label" --argjson skipped "$skipped" '{kind: $kind, skipped: ($skipped == 1)}'
-    return 0
-  fi
+  ((UI_TTY)) || note "$label: sleeping $(fmt_dur "$total")"
   while :; do
     left=$((end - $(date +%s)))
     ((left <= 0)) && break
     if ((RALPH_INTERRUPTED)) || stop_ends_wait "$label" || skip_requested; then
-      printf '\r\033[2K'
-      ((RALPH_INTERRUPTED)) && warn "sleep skipped"
+      if ((UI_TTY)); then
+        printf '\r\033[2K'
+        ((RALPH_INTERRUPTED)) && warn "sleep skipped"
+      fi
       RALPH_INTERRUPTED=0 skipped=1
       break
     fi
-    pct=$(((total - left) * 100 / total))
-    f=$((pct * w / 100))
-    printf '\r\033[2K   %s%-9s%s %s[%s%s]%s %s left  %s(ctrl-c skips)%s' \
-      "$C_BOLD" "$label" "$C_RESET" \
-      "$col" "$(rep '#' "$f")" "$(rep '.' $((w - f)))" "$C_RESET" \
-      "$(fmt_dur "$left")" "$C_DIM" "$C_RESET"
+    if ((UI_TTY)); then
+      pct=$(((total - left) * 100 / total))
+      f=$((pct * w / 100))
+      printf '\r\033[2K   %s%-9s%s %s[%s%s]%s %s left  %s(ctrl-c skips)%s' \
+        "$C_BOLD" "$label" "$C_RESET" \
+        "$col" "$(rep '#' "$f")" "$(rep '.' $((w - f)))" "$C_RESET" \
+        "$(fmt_dur "$left")" "$C_DIM" "$C_RESET"
+    fi
     sleep 1
   done
-  printf '\r\033[2K'
-  RUN_THROTTLED_S=$((RUN_THROTTLED_S + total))
+  ((UI_TTY)) && printf '\r\033[2K'
+  # What was waited, not what was planned: a skip or a stop cuts it short.
+  RUN_THROTTLED_S=$((RUN_THROTTLED_S + $(date +%s) - start))
   ev wait.end --arg kind "$label" --argjson skipped "$skipped" '{kind: $kind, skipped: ($skipped == 1)}'
   return 0
 }
@@ -402,6 +399,7 @@ skip_requested() {
 # Never fails: a renderer missing an event must not stop the loop.
 ev() {
   [[ -n "$EVENTS_FILE" ]] || return 0
+  ui_watch
   local type="$1" filter='{}'
   local -a args=()
   shift
@@ -425,6 +423,7 @@ ev() {
 # RALPH_UI: auto (default) | rich | plain.
 RALPH_UI="${RALPH_UI:-auto}"
 UI_PID=""
+UI_SAVED=0 # fds 7 and 8 hold the terminal while ralph-ui has it
 
 ui_bin() { # the ralph-ui to run, or nothing
   if [[ -n "${RALPH_UI_BIN:-}" ]]; then
@@ -465,8 +464,24 @@ ui_start() {
   # keys must reach ralph-ui, so it gets the terminal explicitly.
   "$bin" live --events "$EVENTS_FILE" --pid "$$" --detail "$detail" </dev/tty &
   UI_PID=$!
-  exec >>"$LOG_DIR/console.log" 2>&1
+  exec 7>&1 8>&2 >>"$LOG_DIR/console.log" 2>&1
+  UI_SAVED=1
   ui_init
+  return 0
+}
+
+# A ralph-ui that is gone, whether it never started or died, must not leave the
+# run without an output: the terminal goes back to this script's own. Checked
+# before every event, which costs one kill -0.
+ui_watch() {
+  [[ -n "$UI_PID" ]] || return 0
+  kill -0 "$UI_PID" 2>/dev/null && return 0
+  UI_PID=""
+  ((UI_SAVED)) || return 0
+  exec 1>&7 2>&8 7>&- 8>&-
+  UI_SAVED=0
+  ui_init
+  warn "ralph-ui exited - back to the plain output; what came before is in ${LOG_DIR#"$SCRIPT_DIR"/}/console.log"
   return 0
 }
 
@@ -563,6 +578,32 @@ jqf() {
 # every later one.
 US=$'\x1f'
 
+# The rules more than one jq program here needs: the client, the board and the
+# fake server read the spec the same way because they read it from here.
+# shellcheck disable=SC2016
+JQ_LIB='
+# ISO 8601 -> unix seconds. 0 for nothing, and for a date that cannot be read.
+def epoch: (. // "") | tostring
+  | if . == "" or . == "null" then 0
+    else (try (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | sub("\\+0000$"; "Z")
+               | fromdateiso8601) catch 0) end;
+# Only a person can move it: sick, and the doctor gave up or was called twice (spec 5.3).
+def needs_human:
+  .state.sick and (
+    ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
+    or ([.runs[] | select(.stage == "doctor")] | length) >= 2);
+# Over a task list: what waits for a person, and every task that hangs from it.
+def blocked_ids:
+  . as $t
+  | def step: . as $b
+      | [ $t[] | select(.state.stage != "done")
+          | select((.id as $i | $b | index($i)) == null)
+          | select((.spec.dependsOn // []) | any(. as $d | ($b | index($d)) != null))
+          | .id ];
+    [ $t[] | select(needs_human) | .id ]
+    | until((step | length) == 0; . + step);
+'
+
 #endregion
 
 #region api ------------------------------------------------------------------
@@ -658,25 +699,10 @@ api_project() {
 # here from the runs, with the same rules as the server, so a renderer needs no
 # API of its own.
 # shellcheck disable=SC2016
-BOARD_JQ='
-def epoch: (. // "") | tostring
-  | if . == "" or . == "null" then 0
-    else (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) end;
-def needs_human:
-  .state.sick and (
-    ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
-    or ([.runs[] | select(.stage == "doctor")] | length) >= 2);
-# the not-done tasks that depend on one already in $b
-def step($t): . as $b
-  | [ $t[] | select(.state.stage != "done")
-      | select((.id as $i | $b | index($i)) == null)
-      | select((.spec.dependsOn // []) | any(. as $d | ($b | index($d)) != null))
-      | .id ];
+BOARD_JQ="$JQ_LIB"'
 (if type == "array" then . else (.tasks // []) end) as $t
-| ($t | map(select(needs_human) | .id)) as $human
 | ($t | map(select(.state.stage == "done") | .id)) as $done
-# blocked: what waits for a person, and everything that hangs from it
-| ($human | until((step($t) | length) == 0; . + step($t))) as $blocked
+| ($t | blocked_ids) as $blocked
 | { tasks: [ $t[]
     | (.state.claim // null) as $c
     | { id, title: (.spec.title // ""), priority: (.spec.priority // 0),
@@ -693,13 +719,19 @@ def step($t): . as $b
         blockedBy: (((.spec.dependsOn // []) - $done) as $deps
                     | [ $deps[] | select(. as $d | $blocked | index($d) != null) ] | first) } ] }'
 
-# Sends the board. One GET; a failure only means no fresh board this time.
-board_refresh() {
+# Sends the board. One GET of every task with its runs, so while a worker only
+# waits for work it is asked for with a minimum age: a board a minute old says
+# the same. A failure only means no fresh board this time.
+BOARD_AT=0
+board_refresh() { # board_refresh [minimum age in seconds]
   [[ -n "$EVENTS_FILE" ]] || return 0
+  local payload now
+  now="$(date +%s)"
+  ((now - BOARD_AT >= ${1:-0})) || return 0
   api GET "/projects/$RALPH_PROJECT/tasks" && ((API_CODE == 200)) || return 0
-  local payload
-  payload="$(jq -c --argjson now "$(date +%s)" "$BOARD_JQ" <<<"$API_BODY" 2>/dev/null)" || return 0
+  payload="$(jq -c --argjson now "$now" "$BOARD_JQ" <<<"$API_BODY" 2>/dev/null)" || return 0
   [[ -n "$payload" ]] || return 0
+  BOARD_AT="$now"
   ev board --argjson b "$payload" '$b'
 }
 
@@ -759,10 +791,7 @@ work_parse() { # work_parse <file holding the answer>
   STORY_ID="" STORY_TITLE="" STORY_PRIORITY=0 STORY_TIER_RAW=""
   TASK_STAGE="" TASK_PR="" PIPE_FIRST=""
   STAGE_POS=0 STAGE_COUNT=0 STAGE_FIRST=0 STAGE_LAST=0
-  rec="$(jqf "" -r --arg sep "$US" '
-      def epoch: (. // "") | tostring
-        | if . == "" then 0
-          else (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) end;
+  rec="$(jqf "" -r --arg sep "$US" "$JQ_LIB"'
       if .stage == null then
         [ "", (if .finished then "1" else "0" end) ] | join($sep)
       else
@@ -1441,9 +1470,11 @@ def event:
   else empty end
   | {v: 1, ts: (now | floor)} + .;
 
+# A record of a shape this does not expect is dropped, not reported: the raw
+# log keeps it, and an error here would only be noise on the terminal.
 fromjson? // empty
-| (if $events then (event | "\u001e" + tojson) else empty end),
-  (if $pretty then pretty else empty end)'
+| (if $events then ((try event catch empty) | "\u001e" + tojson) else empty end),
+  (if $pretty then (try pretty catch empty) else empty end)'
 
 # A plain-text agent (amp, a custom command): each line is shown as it is, and
 # is an event of its own.
@@ -1664,20 +1695,16 @@ WIN_PCT=0 WIN_RESET=0 WEEK_PCT=0 WEEK_RESET=0 WIN_SRC="none" WIN_FRESH=1 WIN_FET
 # anthropic-ratelimit-unified-* response headers) in ~/.claude.json. That beats
 # any local estimate: it is the real percentage and it sees every other session.
 _probe_config() { # _probe_config <config path>
-  jq -r '
-    def ep: (. // "") | tostring
-      | if . == "" or . == "null" then 0
-        else (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | sub("\\+0000$"; "Z")
-              | fromdateiso8601) end;
+  jq -r "$JQ_LIB"'
     .cachedUsageUtilization as $u
     | if ($u | type) != "object" then empty else . end
     | ($u.utilization.limits? // []) as $L
     | ((([$L[]? | select(.kind == "session")] | first) // $u.utilization.five_hour) // {}) as $s
     | ((([$L[]? | select(.kind == "weekly_all")] | first) // $u.utilization.seven_day) // {}) as $w
     | [ (($s.percent // $s.utilization // 0) | floor),
-        ($s.resets_at | ep),
+        ($s.resets_at | epoch),
         (($w.percent // $w.utilization // 0) | floor),
-        ($w.resets_at | ep),
+        ($w.resets_at | epoch),
         ((($u.fetchedAtMs // 0) / 1000) | floor)
       ] | @tsv' "$1" 2>/dev/null
 }
@@ -2129,25 +2156,9 @@ synthesize_result() { # synthesize_result <raw log>
 FAKE_STATE=""
 
 # shellcheck disable=SC2016
-FAKE_API_JQ='
-def needs_human:
-  .state.sick and (
-    ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
-    or ([.runs[] | select(.stage == "doctor")] | length) >= 2);
-
+FAKE_API_JQ="$JQ_LIB"'
 def active($now):
   .state.claim != null and (.state.claim.expiresAt | fromdateiso8601) > $now;
-
-def blocked_ids:
-  . as $t
-  | def step: . as $b
-      | [ $t[]
-          | select(.state.stage != "done")
-          | select((.id as $i | $b | index($i)) == null)
-          | select((.spec.dependsOn // []) | any(. as $d | ($b | index($d)) != null))
-          | .id ];
-    [ $t[] | select(needs_human) | .id ]
-    | until((step | length) == 0; . + step);
 
 def counts($now):
   { total: length,
@@ -2985,11 +2996,9 @@ ev_session_end() { # ev_session_end <state> <agent runs>
 # The tasks nobody but a person can move: sick, and either the doctor gave up or
 # it has already been called twice.
 # shellcheck disable=SC2016
-NEEDS_HUMAN_JQ='
+NEEDS_HUMAN_JQ="$JQ_LIB"'
   .tasks[]
-  | select(.state.sick and (
-      ((.runs | last) as $l | $l != null and $l.stage == "doctor" and $l.outcome == "sick")
-      or ([.runs[] | select(.stage == "doctor")] | length) >= 2))
+  | select(needs_human)
   | [ .id, .state.stage,
       ((.runs | last | .body // "") | gsub("[\r\n\t]+"; " ") | .[0:120]) ] | join($sep)'
 
@@ -3152,13 +3161,14 @@ ask_for_work() {
       --argjson h "$CNT_HUMAN" --argjson b "$CNT_BLOCKED" --argjson idle "$RALPH_IDLE_S" \
       '{finished: ($finished == 1), idleS: $idle,
         counts: {total: $t, done: $d, claimed: $c, sick: $s, needsHuman: $h, blocked: $b}}'
-    board_refresh
     if ((WORK_FINISHED)); then
       # Done, or everything left hangs from a task that waits for a person.
+      board_refresh
       ASK_STATE="complete"
       ((CNT_BLOCKED > 0)) && ASK_STATE="blocked"
       return 1
     fi
+    board_refresh 60
     printf '\n'
     note "nothing eligible right now ($CNT_CLAIMED claimed by other workers, $((CNT_TOTAL - CNT_DONE)) not done) - asking again in $(fmt_dur "$RALPH_IDLE_S")"
     countdown "$RALPH_IDLE_S" "idle" "$C_CYAN"
@@ -3309,6 +3319,7 @@ main() {
 
   case "$state" in
     complete) exit 0 ;;
+    stopped) exit 0 ;; # a person asked for it: a supervisor must not start it again
     exhausted) exit 2 ;;
     blocked) exit 3 ;;
     api) exit 6 ;;

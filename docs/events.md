@@ -33,7 +33,7 @@ Money is integer micro-dollars (`costU`), like everywhere in `ralph.sh`. Times a
 ### The project
 
 - **`project`**: `counts` (`{total, done, claimed, sick, needsHuman, blocked}`, as in section 4.1 of the spec). Sent whenever `ralph.sh` reads the project.
-- **`board`**: `tasks`, each the card of the panel (section 9 of the spec): `id`, `title`, `priority`, `stage`, `runs` (how many), `sick`, `needsHuman`, `claim` (`{worker, expiresAt}` while active, else null), `pr`, `rejects`, `assumptions` (how many were declared), `doneAt`, `why` (the last run's body, while sick), `blockedBy` (the dependency that waits for a person). Sent at the start, after every run registered or lost, and when there is no work.
+- **`board`**: `tasks`, each the card of the panel (section 9 of the spec): `id`, `title`, `priority`, `stage`, `runs` (how many), `sick`, `needsHuman`, `claim` (`{worker, expiresAt}` while active, else null), `pr`, `rejects`, `assumptions` (how many were declared), `doneAt`, `why` (the last run's body, while sick), `blockedBy` (the dependency that waits for a person). Sent at the start, after every run registered or lost, and when there is no work: then at most once a minute, since each one is a `GET` of every task with its runs.
 - **`work.none`**: `finished`, `idleS`, `counts`. The server had nothing eligible.
 
 ### Quota and pacing
@@ -70,8 +70,8 @@ From an agent that writes plain text (amp, `RALPH_AGENT_CMD`): **`agent.line`** 
 
 A renderer that owns the keyboard asks the loop for two things through files, named in `session.start.control`. A person can create them too, for a worker started with `nohup`:
 
-- **`stop`**: the worker registers the stage in progress, starts no other, and ends the session as `stopped`. It also ends a wait between stages at once. Removing the file before then takes the request back.
-- **`skip`**: ends the wait in progress, as Ctrl-C does in the plain output. Consumed when seen.
+- **`stop`**: the worker registers the stage in progress, starts no other, and ends the session as `stopped`, with exit code 0. It also ends a wait between stages at once. Removing the file before then takes the request back.
+- **`skip`**: ends the wait in progress, as Ctrl-C does in the plain output. Consumed when seen, and dropped when a wait starts, so a late one never cuts the next wait short.
 
 ## Changing the format
 

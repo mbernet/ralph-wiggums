@@ -76,7 +76,14 @@ func (v *View) pipeline(s *state.State, w int) string {
 	}
 	pos := 0
 	if st := s.Stage; st != nil && st.Stage != "doctor" {
-		pos = st.Pos
+		// The pipeline can gain a stage while the worker runs: place the stage
+		// by its name in what this session knows, and add it when it is new.
+		i, known := indexOf(stages, st.Stage)
+		if !known {
+			stages = append(append([]string{}, stages...), st.Stage)
+			i = len(stages) - 1
+		}
+		pos = i + 1
 	}
 	count := map[string]int{}
 	for _, task := range s.Board {

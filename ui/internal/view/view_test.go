@@ -233,3 +233,32 @@ func mustDecode(t *testing.T, line string) event.Event {
 	}
 	return e
 }
+
+func TestTruncLeftKeepsTheEndWithinTheWidth(t *testing.T) {
+	for _, s := range []string{
+		strings.Repeat("漢", 40), // wide runes: width 80
+		"src/components/a/very/long/path/to/TaskEditModal.tsx",
+		"short",
+	} {
+		for _, w := range []int{1, 5, 20, 60} {
+			got := truncLeft(s, w)
+			if width(got) > w {
+				t.Errorf("truncLeft(%q, %d) = %q, %d wide", s, w, got, width(got))
+			}
+		}
+	}
+	if got := truncLeft("src/a/b/TaskEditModal.tsx", 18); !strings.HasSuffix(got, "TaskEditModal.tsx") {
+		t.Errorf("the end of a path is lost: %q", got)
+	}
+}
+
+func TestAStageThePipelineDidNotHaveDoesNotBreakTheFooter(t *testing.T) {
+	v := plainView()
+	s := state.New()
+	s.Apply(mustDecode(t, `{"v":1,"ts":1,"type":"session.start","project":"p","worker":"w","pipeline":["implement","review_functional"]}`))
+	// The project gained a third stage while this worker ran.
+	s.Apply(mustDecode(t, `{"v":1,"ts":2,"type":"stage.start","task":{"id":"US-9"},"stage":"security","pos":3,"count":3,"attempt":1}`))
+	for _, w := range []int{20, 40, 100} {
+		fits(t, "footer", v.Footer(s, Options{Width: w, Now: 3}), w)
+	}
+}

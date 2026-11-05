@@ -68,8 +68,12 @@ func truncLeft(s string, w int) string {
 	if width(s) <= w || w <= 1 {
 		return trunc(s, w)
 	}
+	// Drop from the front by display width: a rune can be two cells wide.
 	r := []rune(s)
-	return "…" + string(r[len(r)-w+1:])
+	for len(r) > 0 && width(string(r))+1 > w {
+		r = r[1:]
+	}
+	return "…" + string(r)
 }
 
 // spread puts left and right at the two ends of a line of width w. When both
