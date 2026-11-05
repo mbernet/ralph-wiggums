@@ -1,5 +1,7 @@
 # Ralph Agent Instructions
 
+If a person asked you to set up Ralph for their project, not to change Ralph, follow [`SETUP.md`](SETUP.md) instead: this file is about developing Ralph itself.
+
 ## Overview
 
 Ralph is an autonomous agent loop. `ralph.sh` runs an AI coding tool (Amp or Claude Code) once per stage of a task, each time in a fresh context, until the Ralph task API has no more work for this worker. The API is shared by several workers; `docs/central-prd-spec.md` is its spec.

@@ -2,6 +2,8 @@
 
 ![Ralph](ralph.webp)
 
+**The quick way:** open your coding agent and tell it *"set up https://github.com/mbernet/ralph-wiggums for my project"*. It follows [`SETUP.md`](SETUP.md): it asks for your Ralph server, its token, your repository and your spec, and leaves everything ready to start.
+
 Ralph Wiggums is Ralph in the plural: an autonomous AI agent loop where several workers share one project. Each worker runs an AI coding tool ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until every task of a PRD is merged. Each iteration is a fresh instance with clean context. Memory persists via git and a small task API that the workers share.
 
 Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/) and on [snarktank/ralph](https://github.com/snarktank/ralph) by Ryan Carson, whose loop, skills and history this repository carries on from. If you want one worker and plain files, with no server to run, use that one.
