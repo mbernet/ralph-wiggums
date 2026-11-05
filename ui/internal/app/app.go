@@ -15,8 +15,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/mbernet/ralph-wiggums/ui/internal/event"
+	"github.com/mbernet/ralph-wiggums/ui/internal/saver"
 	"github.com/mbernet/ralph-wiggums/ui/internal/state"
 	"github.com/mbernet/ralph-wiggums/ui/internal/view"
 )
@@ -47,21 +49,38 @@ type evMsg struct {
 
 type tickMsg time.Time
 
+// frameMsg asks for the next frame of the saver that was open as gen.
+type frameMsg struct{ gen int }
+
 type model struct {
 	cfg      Config
 	v        *view.View
 	s        *state.State
 	ch       <-chan event.Event
 	width    int
+	height   int
 	verb     view.Verbosity
 	stopping bool
 	help     bool
 	spin     int
 	done     bool
 	gone     bool
+
+	// The saver takes the whole screen. What would go up the scrollback in
+	// the meantime is held and printed when it closes.
+	saver  *saver.Saver
+	gen    int
+	held   []string
+	screen string // the last frame; drawn on the saver's clock, not per message
 }
 
 const tickEvery = 120 * time.Millisecond
+
+const frameEvery = 66 * time.Millisecond
+
+func frame(gen int) tea.Cmd {
+	return tea.Tick(frameEvery, func(time.Time) tea.Msg { return frameMsg{gen} })
+}
 
 func tick() tea.Cmd {
 	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
@@ -105,9 +124,49 @@ func printLines(lines []string) tea.Cmd {
 	return tea.Println(strings.Join(lines, "\n"))
 }
 
+// print sends lines up the scrollback, or holds them while the saver is open.
+func (m *model) print(lines []string) tea.Cmd {
+	if m.saver != nil {
+		m.held = append(m.held, lines...)
+		return nil
+	}
+	return printLines(lines)
+}
+
+func (m *model) openSaver() tea.Cmd {
+	p := termenv.Ascii
+	if m.cfg.Renderer != nil {
+		p = m.cfg.Renderer.ColorProfile()
+	}
+	m.saver = saver.New(p, time.Now().UnixNano())
+	m.gen++
+	m.draw()
+	return tea.Batch(tea.EnterAltScreen, frame(m.gen))
+}
+
+func (m *model) draw() {
+	w, h := m.width, m.height
+	if w <= 0 || h <= 0 {
+		w, h = 80, 24
+	}
+	m.screen = m.saver.Frame(m.s, w, h, time.Now())
+}
+
+// closeSaver gives the screen back, then prints what was held. With the saver
+// closed already it does nothing.
+func (m *model) closeSaver() tea.Cmd {
+	if m.saver == nil {
+		return nil
+	}
+	held := m.held
+	m.saver, m.held, m.screen = nil, nil, ""
+	m.gen++
+	return tea.Sequence(tea.ExitAltScreen, printLines(held))
+}
+
 func (m *model) finish(lines ...string) tea.Cmd {
 	m.done = true
-	return tea.Sequence(printLines(lines), tea.Quit)
+	return tea.Sequence(m.closeSaver(), printLines(lines), tea.Quit)
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -116,8 +175,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
+		m.width, m.height = msg.Width, msg.Height
+		if m.saver != nil {
+			m.draw()
+		}
 		return m, nil
+
+	case frameMsg:
+		if m.saver == nil || msg.gen != m.gen {
+			return m, nil
+		}
+		m.draw()
+		return m, frame(m.gen)
 
 	case tickMsg:
 		m.spin++
@@ -135,15 +204,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.finish()
 		}
 		m.s.Apply(msg.e)
-		print := printLines(m.v.Scroll(m.s, msg.e, m.opts()))
-		if msg.e.Type == "session.exit" {
-			m.done = true
-			return m, tea.Sequence(print, tea.Quit)
+		if m.saver != nil {
+			m.saver.Feed(msg.e)
 		}
-		return m, tea.Sequence(print, tea.SetWindowTitle(title(m.s)), next(m.ch))
+		lines := m.v.Scroll(m.s, msg.e, m.opts())
+		if msg.e.Type == "session.exit" {
+			return m, m.finish(lines...)
+		}
+		return m, tea.Sequence(m.print(lines), tea.SetWindowTitle(title(m.s)), next(m.ch))
 
 	case tea.KeyMsg:
-		return m, m.key(msg.String())
+		k := msg.String()
+		if m.saver != nil {
+			// Any key brings the normal view back, and does nothing else.
+			// Ctrl-C keeps its meaning.
+			if k != "ctrl+c" {
+				return m, m.closeSaver()
+			}
+			return m, tea.Sequence(m.closeSaver(), m.key(k))
+		}
+		return m, m.key(k)
 	}
 	return m, nil
 }
@@ -176,6 +256,8 @@ func (m *model) key(k string) tea.Cmd {
 		return tea.Println(m.v.Board(m.s, m.opts()))
 	case "?":
 		m.help = !m.help
+	case "z":
+		return m.openSaver()
 	case "ctrl+c":
 		if !live {
 			return m.finish()
@@ -190,6 +272,9 @@ func (m *model) key(k string) tea.Cmd {
 func (m *model) View() string {
 	if m.done {
 		return ""
+	}
+	if m.saver != nil {
+		return m.screen
 	}
 	return m.v.Footer(m.s, m.opts())
 }

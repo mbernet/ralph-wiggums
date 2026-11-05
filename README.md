@@ -328,6 +328,7 @@ wait, the tasks done, the 5h and 7d windows, the other workers and what needs yo
 | `s` | Skip the wait in progress |
 | `v` | Detail of the agent's activity: quiet, normal, verbose |
 | `b` | Print the board of the project |
+| `z` | Screensaver: a full-screen plasma driven by the run. Any key brings the normal view back, with what happened in the meantime |
 | `?` | Help |
 | `Ctrl-C` | Passed to the loop as in the plain output: twice in a row aborts |
 
