@@ -381,7 +381,7 @@ Ralph only works if there are feedback loops:
 
 ### Browser Verification for UI Tasks
 
-Frontend tasks must include "Verify in browser using dev-browser skill" in acceptance criteria. The functional review opens the page and confirms each criterion by observing it.
+Frontend tasks must include "Verify in browser using dev-browser skill" in acceptance criteria. The implement stage opens the page and checks each criterion in the browser.
 
 ### Stop Condition
 

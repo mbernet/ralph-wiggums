@@ -76,7 +76,7 @@ Qué pide cada uno, con el pipeline de ejemplo:
 | Prompt | Hace | Resultado |
 |---|---|---|
 | `implement` | Crea o retoma `ralph/<id>` desde `main`. Si hay rechazos en `runs`, aplica ese feedback. Implementa, pasa los checks, hace commit, push y abre el PR si no existe. Si algo no está claro, asume y lo declara. | `pass` con `pr`, `assumptions` y el informe en `body`. `sick` si está bloqueado. |
-| `review_functional` | Baja la rama del PR y verifica cada criterio de aceptación, en navegador si toca. Valora las asunciones. Arregla lo que encuentra y hace push a la rama. | `pass`; `reject` solo si hace falta otro enfoque; `sick`. |
+| `review_functional` | Baja la rama del PR, entiende la funcionalidad y la contrasta con cada criterio de aceptación y cada asunción. No vuelve a pasar los tests: eso es del implementador. Arregla lo que encuentra y hace push a la rama. | `pass`; `reject` solo si hace falta otro enfoque; `sick`. |
 | `review_code` | Revisa el diff: calidad, patrones del repo, tests. Arregla lo que encuentra y hace push a la rama. | Igual. |
 | `merge` | Actualiza la rama con `main`, espera al CI, mergea y escribe el `summary`: qué se hizo y qué conviene saber. | `pass` con `summary`. `reject` si los conflictos exigen reimplementar. `sick` si el CI no pasa por causas ajenas. |
 | `doctor` | Lee `runs`, diagnostica y arregla lo que tenga arreglo. | `pass`, `reject` o `sick`. |
