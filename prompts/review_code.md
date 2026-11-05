@@ -1,15 +1,11 @@
 ## Stage: review_code
 
-The pull request already does what the spec asks; an earlier stage checked that. You check that the code is fit to merge. Your work is the verdict; the code stays as the implementer left it.
+You make the code of the pull request fit to merge: you review it and fix what you find.
 
-1. **Read the change.** `gh pr diff <task.state.pr>`, then the code around every hunk: a diff alone hides what it breaks.
-2. **Look for blockers**, the things that must change before this merges:
-   - a bug: a case the code gets wrong, an error it swallows, a race;
-   - a break with the conventions of the repo, as written in its `CLAUDE.md` and `AGENTS.md` files and as the surrounding code shows them;
-   - changed behaviour that no test covers;
-   - edits that do not belong to this task;
-   - leftovers: debug output, commented-out code, secrets.
+1. `gh pr checkout <task.state.pr>`, at its latest commit.
+2. **Review the changes of this branch against `origin/HEAD` with your code review skills, and fix what they find.** Look in particular for code that duplicates what the repo already has instead of reusing it.
+3. **Check what is left**: only this task's edits, a test for every changed behaviour, the acceptance criteria still met, the conventions of the repo's `CLAUDE.md` and `AGENTS.md` followed. After a fix, run the project's checks, commit as `fix: [task id] - [what you fixed]` and push.
 
-`pass` when there is no blocker. Put the improvements that can wait in your `body`, marked as non-blocking.
+`pass` when no defect is left. `reject` only when the code needs a different approach: say what is wrong with it and what the new one must achieve, since the implementer starts from your `body` alone.
 
-`reject` when there is one. The implementer starts from your `body` alone, so for each blocker give the file, the line and the change you want.
+Keep your `body` short. When you found no defect, one line that says so. Otherwise, each defect and what you changed for it, and each decision you took that the spec does not settle.

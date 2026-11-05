@@ -20,7 +20,7 @@ La filosofía de Ralph no cambia. Cambia dónde vive la memoria.
 | `prd.json` y el flag `passes` | `POST /work` y el `outcome` de cada run |
 | Selección por `priority` con `jq` | La hace el servidor |
 | `progress.txt` | El `body` de cada run y el `summary` final; llegan en `progress` |
-| Sección "Codebase Patterns" | `summary` de las tareas hechas, más los `CLAUDE.md` del repo |
+| Sección "Codebase Patterns" | `summary` de las tareas hechas |
 | `notes` para bloqueos | `outcome: sick` con el motivo en `body` |
 | `branchName` del PRD | Una rama por tarea: `ralph/<id>` |
 | `<promise>COMPLETE</promise>` | `finished` en la respuesta de `POST /work` |
@@ -76,12 +76,12 @@ Qué pide cada uno, con el pipeline de ejemplo:
 | Prompt | Hace | Resultado |
 |---|---|---|
 | `implement` | Crea o retoma `ralph/<id>` desde `main`. Si hay rechazos en `runs`, aplica ese feedback. Implementa, pasa los checks, hace commit, push y abre el PR si no existe. Si algo no está claro, asume y lo declara. | `pass` con `pr`, `assumptions` y el informe en `body`. `sick` si está bloqueado. |
-| `review_functional` | Baja la rama del PR y verifica cada criterio de aceptación, en navegador si toca. Valora las asunciones. No modifica código. | `pass`, `reject` con feedback accionable, o `sick`. |
-| `review_code` | Revisa el diff: calidad, patrones del repo, tests. No modifica código. | Igual. |
+| `review_functional` | Baja la rama del PR, entiende la funcionalidad y la contrasta con cada criterio de aceptación y cada asunción. No vuelve a pasar los tests: eso es del implementador. Arregla lo que encuentra y hace push a la rama. | `pass`; `reject` solo si hace falta otro enfoque; `sick`. |
+| `review_code` | Revisa el diff: calidad, patrones del repo, tests. Arregla lo que encuentra y hace push a la rama. | Igual. |
 | `merge` | Actualiza la rama con `main`, espera al CI, mergea y escribe el `summary`: qué se hizo y qué conviene saber. | `pass` con `summary`. `reject` si los conflictos exigen reimplementar. `sick` si el CI no pasa por causas ajenas. |
 | `doctor` | Lee `runs`, diagnostica y arregla lo que tenga arreglo. | `pass`, `reject` o `sick`. |
 
-`CLAUDE.md` y `prompt.md` dejan de ser el prompt del bucle. La parte de "actualiza los `CLAUDE.md` cercanos con lo aprendido" se conserva en `implement.md`: esos cambios viajan en el PR.
+`CLAUDE.md` y `prompt.md` dejan de ser el prompt del bucle. Los agentes ya no actualizan los `CLAUDE.md` cercanos con lo aprendido: crecían en cada iteración con notas que nadie necesitaba. Lo aprendido va en el `summary` de `merge`, y solo cuando ahorraría trabajo a una tarea posterior.
 
 ### 2.5 Tiers de modelo
 
@@ -244,3 +244,4 @@ Cada paso deja el script funcionando y se hace con tests primero.
 - **Códigos de salida.** `0` no queda nada, `1` iteraciones agotadas, `2` ventana agotada, `3` lo que queda espera a una persona, `4` configuración o autenticación, `5` el agente muere dos veces seguidas, `6` API inalcanzable.
 - **Rescate de una tarea parada.** `./ralph.sh --story <id>` la pide a dedo y vuelve a mandar al doctor. El resumen final lista las tareas paradas con su diagnóstico.
 - **`RALPH_MAX_RETRIES` desaparece.** Los reintentos los acota el claim.
+- **Tier por etapa.** El tier de la tarea vale para todas sus etapas, salvo que el worker le dé uno propio a una etapa con `RALPH_STAGE_<NOMBRE>`, por ejemplo `RALPH_STAGE_IMPLEMENT=low`. El script no conoce ningún nombre: lo saca del pipeline del proyecto, igual que el prompt. Probado en un proyecto real con haiku en `implement` y opus en las revisiones: los revisores encontraron y arreglaron un bug que haiku había dejado.

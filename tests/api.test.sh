@@ -105,6 +105,19 @@ check "a doctor run is neither first nor last" "0 0" "$STAGE_FIRST $STAGE_LAST"
 check "and knows where the task stands" "review_code" "$TASK_STAGE"
 check "and where a reject would send it" "implement" "$PIPE_FIRST"
 
+printf '\ntier_to_model\n'
+
+# The task in work_json is tier high. A stage can be given its own tier by name.
+work_parse "$TMP/w2.json"
+RALPH_STAGE_IMPLEMENT=low tier_to_model
+check "a stage with its own tier uses it" "low $RALPH_MODEL_LOW" "$STORY_TIER $MODEL"
+work_parse "$TMP/w1.json"
+RALPH_STAGE_IMPLEMENT=low tier_to_model
+check "the other stages keep the tier of the task" "high $RALPH_MODEL_HIGH" "$STORY_TIER $MODEL"
+work_parse "$TMP/w6.json"
+RALPH_STAGE_DOCTOR=med tier_to_model
+check "the doctor can be given one the same way" "med $RALPH_MODEL_MED" "$STORY_TIER $MODEL"
+
 printf '%s' '{"stage":null,"finished":false,"counts":{"total":5,"done":2,"claimed":1,"sick":1,"needsHuman":1,"blocked":2}}' >"$TMP/w7.json"
 work_parse "$TMP/w7.json"
 check "no work: no stage" "" "$WORK_STAGE"

@@ -213,6 +213,17 @@ The tier of a task applies to every one of its stages. The doctor runs on its ow
 `RALPH_MODEL_MED` and `RALPH_MODEL_HIGH` (model ids age, and `claude-opus-5[1m]` has to
 be quoted in a shell). `--tool amp` ignores tiers entirely; amp has no model selector.
 
+A worker can also give a stage its own tier, whatever the tier of the task, with
+`RALPH_STAGE_<STAGE NAME>` in `.ralph/env`. A cheap implementer with strong reviewers:
+
+```
+RALPH_STAGE_IMPLEMENT=low
+RALPH_MODEL_LOW=haiku
+```
+
+The names are those of your pipeline, so a new stage needs no change to the script.
+`RALPH_STAGE_DOCTOR` works too, and wins over `RALPH_DOCTOR_TIER`.
+
 The `/ralph` skill assigns the tiers when it converts your PRD, using the heuristics in
 `skills/ralph/SKILL.md`. The short version: default to `med`; use `low` when a competent
 junior could do it from the criteria alone; use `high` only for genuinely wide work. If
@@ -367,14 +378,9 @@ Too big (split these):
 
 A task is handed out only when everything in its `dependsOn` is merged. That is what orders the work, and what lets several workers run at once. `priority` only breaks ties.
 
-### AGENTS.md Updates Are Critical
+### The Summaries Are the Project's Memory
 
-The implement stage updates the relevant `AGENTS.md` files with learnings, and they travel in the pull request. This is key because AI coding tools automatically read these files, so future iterations (and future human developers) benefit from discovered patterns, gotchas, and conventions.
-
-Examples of what to add to AGENTS.md:
-- Patterns discovered ("this codebase uses X for Y")
-- Gotchas ("do not forget to update Z when changing W")
-- Useful context ("the settings panel is in component X")
+The merge stage closes each task with a short `summary`: what was done, where it lives in the code, and a lesson only when a run found something out the hard way. Every later task receives all the summaries. The agents leave `CLAUDE.md` and `AGENTS.md` as the people of the project write them.
 
 ### Feedback Loops
 
@@ -386,7 +392,7 @@ Ralph only works if there are feedback loops:
 
 ### Browser Verification for UI Tasks
 
-Frontend tasks must include "Verify in browser using dev-browser skill" in acceptance criteria. The functional review opens the page and confirms each criterion by observing it.
+Frontend tasks must include "Verify in browser using dev-browser skill" in acceptance criteria. The implement stage opens the page and checks each criterion in the browser.
 
 ### Stop Condition
 
