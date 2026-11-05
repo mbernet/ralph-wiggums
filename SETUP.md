@@ -68,10 +68,18 @@ Done when `./ralph.sh --import prd.json` reports every task created and none ref
 
 From the clone, run `./scripts/ralph/ralph.sh --tool <cli> --explain`. It claims nothing. It must show the API, the project, its pipeline, its tasks and a pace action of `go`. Fix whatever it complains about.
 
-Then give the person:
+Then hand over in a short message, and nothing more:
 
-- The start command: `cd <clone> && ./scripts/ralph/ralph.sh --tool <cli>`. It stops by itself when no task is left; each task takes one run per pipeline stage.
-- Where to follow it: the pull requests on GitHub, and the logs in `scripts/ralph/.ralph/logs/`.
-- One option worth knowing: `RALPH_STAGE_IMPLEMENT=low` and `RALPH_MODEL_LOW=haiku` in `.ralph/env` make a cheap model implement while the default one reviews.
+1. One line saying it is ready.
+2. The command to start it, in a code block, ready to paste:
+
+   ```
+   cd <clone> && ./scripts/ralph/ralph.sh --tool <cli> <runs>
+   ```
+
+   `<runs>` caps the agent runs. Each task takes one per pipeline stage, so give it the tasks left times the stages, plus a third for retries. The loop stops by itself when no task is left.
+3. Only what the person has to act on, if anything, in a line each.
+
+The checks you ran and the choices you made stay out of the message: the person asks if they want them.
 
 Done when `--explain` is clean and the person has the command.
