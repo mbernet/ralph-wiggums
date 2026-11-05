@@ -10,7 +10,7 @@ Call the checkout of this repository `<ralph>`. If you are reading this on GitHu
 
 Ask once, in a single message, for whatever you cannot find yourself:
 
-- **The Ralph server and its token.** People give the host, such as `https://liquia.frb.io/`. The API lives under `/api/ralph` on it.
+- **The Ralph server and its token.** People give the host, such as `https://ralph.example.com/`. The API lives under `/api/ralph` on it.
 - **The project repository**: a GitHub URL, or a local clone you can read the remote from.
 - **The spec**: a file in the repo, a document, or a description in their words.
 - **The agent CLI** the worker runs: `claude` unless they say `amp`.
