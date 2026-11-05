@@ -1001,7 +1001,7 @@ result_rules() {
   fi
   if ((STAGE_FIRST)); then
     printf -- '- `outcome`: `pass` (the work is ready for the next stage) or `sick` (the task cannot move by normal means). This stage cannot `reject`.\n'
-    printf -- '- `body`: what you did and what you learnt.\n'
+    printf -- '- `body`: your report for the next stages.\n'
     if [[ -z "$TASK_PR" ]]; then
       printf -- '- `pr`: the URL of the pull request. Required on a `pass`.\n'
     else
@@ -1013,7 +1013,7 @@ result_rules() {
     printf -- '- `body`: what you found and what you changed. On a `reject`, exactly what has to change.\n'
   fi
   if ((STAGE_LAST)); then
-    printf -- '- `summary`: required on a `pass`, which closes the task. What was done and what the next agents should know about the code.\n'
+    printf -- '- `summary`: required on a `pass`, which closes the task. Every later task receives it, so at most three short lines: what was done and where it lives in the code, naming modules and types, not their signatures: the code has them. Add a lesson only when a run found something out the hard way that the code does not show and a later task would have to find out again. A lesson is about the code, not about the machine: the next task may run on another worker. Most tasks leave none.\n'
   fi
   return 0
 }

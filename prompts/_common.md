@@ -23,4 +23,4 @@ You are one run of an autonomous loop. `ralph.sh` hands you one task at one stag
 
 The last thing you do is write the result file named under "This Iteration", with the fields listed there. It is your only output: `ralph.sh` reads it and nothing else.
 
-Write `body` in markdown for an agent that starts with no memory. It is all the next run will know about what you did.
+Write `body` in markdown for an agent that starts with no memory. It is all the next run will know about what you did, and it holds only what the diff, the spec and the code do not show: the next run reads those itself. The list of files you changed and the commands you ran stay out.
