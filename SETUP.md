@@ -48,7 +48,7 @@ A worker switches branches and stashes what it finds uncommitted, so it never ru
    RALPH_WORKER=<worker>
    ```
 
-   `<project>` is a slug that matches `^[a-z0-9][a-z0-9-]{0,62}$`, the repository name by default. `<worker>` names this machine and stays the same across runs: the server gives a worker back its own tasks first. It must differ from every other worker of the project; the hostname usually does, and the `worker` of the runs in `GET <host>/api/ralph/projects/<project>/tasks` shows the names already taken.
+   `<project>` is a slug that matches `^[a-z0-9][a-z0-9-]{0,62}$`, the repository name by default. `<worker>` is a stable name you choose and write here, always: the server gives a worker back its own tasks first, so the name must stay the same across runs and differ from every other worker of the project. Build it from the person and the clone, such as `marc-notes-cli`, rather than from the hostname, which a container or a CI runner changes on every start. The `worker` of the runs in `GET <host>/api/ralph/projects/<project>/tasks` shows the names already taken.
 
 The token goes in that file and nowhere else: never in a tracked file, a commit or a pull request.
 
@@ -78,8 +78,8 @@ Then hand over in a short message, and nothing more:
    ```
 
    `<runs>` caps the agent runs. Each task takes one per pipeline stage, so give it the tasks left times the stages, plus a third for retries. The loop stops by itself when no task is left.
-3. Only what the person has to act on, if anything, in a line each.
+3. At most three lines, each one something the person has to do or decide. Often there is none.
 
-The checks you ran and the choices you made stay out of the message: the person asks if they want them.
+What you checked, installed, calculated or chose stays out of the message: the person asks if they want it.
 
 Done when `--explain` is clean and the person has the command.
