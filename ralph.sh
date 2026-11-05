@@ -1010,7 +1010,7 @@ result_rules() {
     printf -- '- `assumptions`: a list with every decision you took without being able to confirm it. Leave it out if there is none.\n'
   else
     printf -- '- `outcome`: `pass`, `reject` (the task goes back to `%s` with your `body` as the feedback) or `sick` (the task cannot move by normal means).\n' "$PIPE_FIRST"
-    printf -- '- `body`: what you checked and what you found. On a `reject`, exactly what has to change.\n'
+    printf -- '- `body`: what you found and what you changed. On a `reject`, exactly what has to change.\n'
   fi
   if ((STAGE_LAST)); then
     printf -- '- `summary`: required on a `pass`, which closes the task. What was done and what the next agents should know about the code.\n'
