@@ -27,7 +27,7 @@ Run each check and fix what you can. What you cannot fix, tell the person with t
 - `gh repo view <repo> --json viewerPermission` answers `WRITE`, `MAINTAIN` or `ADMIN`: the agents push branches and merge.
 - The agent CLI answers: `claude --version` (2.1 or newer) or `amp --version`.
 - The project's own build and test commands work from a non-interactive shell, because that is where the agents run them. A tool found only through an interactive shell profile (a `PATH` line in `~/.zshrc`) is invisible to them: put it on the `PATH` the worker starts with.
-- The token works: `curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer <token>" <host>/api/ralph/projects/<project>` answers `404` (the project does not exist yet) or `200`. `401` means the token is wrong.
+- The token works: `curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer <token>" <host>/api/ralph/projects/<project>` answers `404` or `200`. `404` is a new project. `200` means the project already exists and this machine joins it as one more worker (see step 4). `401` means the token is wrong.
 - Optional: `go` 1.24 or newer, to build `ralph-ui`, the terminal interface. Without it Ralph prints plain output.
 
 Done when every check passes.
@@ -48,7 +48,7 @@ A worker switches branches and stashes what it finds uncommitted, so it never ru
    RALPH_WORKER=<worker>
    ```
 
-   `<project>` is a slug that matches `^[a-z0-9][a-z0-9-]{0,62}$`, the repository name by default. `<worker>` names this machine and stays the same across runs: the server gives a worker back its own tasks first.
+   `<project>` is a slug that matches `^[a-z0-9][a-z0-9-]{0,62}$`, the repository name by default. `<worker>` names this machine and stays the same across runs: the server gives a worker back its own tasks first. It must differ from every other worker of the project; the hostname usually does, and the `worker` of the runs in `GET <host>/api/ralph/projects/<project>/tasks` shows the names already taken.
 
 The token goes in that file and nowhere else: never in a tracked file, a commit or a pull request.
 
@@ -56,7 +56,9 @@ Done when `git status` in the clone shows a clean tree.
 
 ## 4. Turn the spec into tasks
 
-Follow `<ralph>/skills/ralph/SKILL.md`, working in `scripts/ralph/` of the clone. If the spec is only an idea, follow `<ralph>/skills/prd/SKILL.md` first to write it out.
+When the project already exists, its tasks are already in the API: skip this step and import nothing. A second split of the spec would add tasks beside those in progress, and two workers would build the same thing twice. Changing those tasks means editing the `prd.json` they came from and importing it again.
+
+For a new project, follow `<ralph>/skills/ralph/SKILL.md`, working in `scripts/ralph/` of the clone. If the spec is only an idea, follow `<ralph>/skills/prd/SKILL.md` first to write it out.
 
 Before the import, show the person the tasks: id, title, dependencies and the acceptance criteria. Splitting the spec is where their judgement matters most, so import once they agree.
 
@@ -64,7 +66,7 @@ Done when `./ralph.sh --import prd.json` reports every task created and none ref
 
 ## 5. Check and hand over
 
-From the clone, run `./scripts/ralph/ralph.sh --tool <cli> --explain`. It claims nothing. It must show the API, the project, its pipeline, the tasks you imported and a pace action of `go`. Fix whatever it complains about.
+From the clone, run `./scripts/ralph/ralph.sh --tool <cli> --explain`. It claims nothing. It must show the API, the project, its pipeline, its tasks and a pace action of `go`. Fix whatever it complains about.
 
 Then give the person:
 
