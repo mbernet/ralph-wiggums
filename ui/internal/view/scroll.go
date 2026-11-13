@@ -353,6 +353,8 @@ func classHint(b event.StageEnd) string {
 		return "the agent produced no result event: see its stderr log."
 	case "ratelimit":
 		return "rate limited: the stage keeps its claim and is retried."
+	case "unavailable":
+		return "the model API failed before any work: the stage keeps its claim and is retried."
 	}
 	return ""
 }

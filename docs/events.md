@@ -46,7 +46,7 @@ Money is integer micro-dollars (`costU`), like everywhere in `ralph.sh`. Times a
 ### A stage
 
 - **`stage.start`**: `iter`, `maxIterations`, `attempt` (1 on the first), `task` (`{id, title, priority, tier, pr}`), `stage` (`doctor` for a sick task), `pos` and `count` (place in the pipeline; 0 for the doctor), `taskStage`, `model`, `tool`, `claimExpires`, `stream` (the raw log of the agent).
-- **`stage.end`**: `iter`, `attempt`, `task`, `stage`, `class` (`ok`, `turns`, `budget`, `crash`, `ratelimit`, `auth`, `error`), `subtype`, `outcome` (`pass`, `reject`, `sick`, `conflict`, `dropped`, `none`), `next` (where the task stands now), `byScript` (the sick run was written by `ralph.sh`), `error` (why there is no result), `durS`, `turns`, `costU`, `runCostU`, `tokens`, `model`, `commit` (`{sha, subject}` or null), `winDelta`, `pr`. What the agent handed in, as sent to the API: `body`, `assumptions`, `summary`.
+- **`stage.end`**: `iter`, `attempt`, `task`, `stage`, `class` (`ok`, `turns`, `budget`, `crash`, `ratelimit`, `unavailable` (the model API failed before any work; retried like `ratelimit`), `auth`, `error`), `subtype`, `outcome` (`pass`, `reject`, `sick`, `conflict`, `dropped`, `none`), `next` (where the task stands now), `byScript` (the sick run was written by `ralph.sh`), `error` (why there is no result), `durS`, `turns`, `costU`, `runCostU`, `tokens`, `model`, `commit` (`{sha, subject}` or null), `winDelta`, `pr`. What the agent handed in, as sent to the API: `body`, `assumptions`, `summary`.
 
 ### The agent
 
