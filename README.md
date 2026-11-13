@@ -31,8 +31,8 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/) and on 
 
 - A running Ralph API and its token (see [the spec](docs/central-prd-spec.md))
 - One of the following AI coding tools installed and authenticated:
-  - [Amp CLI](https://ampcode.com) (default)
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`) - version 2.1 or newer for streaming output, per-task models and rate-limit pacing; older versions fall back to plain output
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (default; `npm install -g @anthropic-ai/claude-code`) - version 2.1 or newer for streaming output, per-task models and rate-limit pacing; older versions fall back to plain output
+  - [Amp CLI](https://ampcode.com) (`--tool amp`)
 - [`gh`](https://cli.github.com) authenticated, with permission to open and merge pull requests: the agents use it, and the API only accepts GitHub pull request URLs
 - `jq` and `curl` installed (`brew install jq` on macOS)
 - `bash` 3.2 or newer (stock macOS bash is fine)
@@ -155,11 +155,11 @@ The import is idempotent: run it again to edit specs or to add tasks to a projec
 ### 3. Run Ralph
 
 ```bash
-# Using Amp (default)
+# Using Claude Code (default)
 ./scripts/ralph/ralph.sh [max_iterations]
 
-# Using Claude Code
-./scripts/ralph/ralph.sh --tool claude [max_iterations]
+# Using Amp
+./scripts/ralph/ralph.sh --tool amp [max_iterations]
 ```
 
 Start as many workers as you want, each in its own clone and with its own `RALPH_WORKER`.
@@ -180,7 +180,7 @@ If the agent ends without a result (a rate limit, a crash), the worker keeps its
 
 | Flag | Effect |
 |------|--------|
-| `--tool <amp\|claude>` | agent CLI to run (default `amp`) |
+| `--tool <claude\|amp>` | agent CLI to run (default `claude`) |
 | `<number>` | max agent runs (default 10) |
 | `--story US-00X` | work on this task only, skipping the eligibility rules |
 | `--import <file>` | create or update the project and its tasks from a PRD, then exit |
