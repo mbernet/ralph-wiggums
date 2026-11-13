@@ -69,6 +69,13 @@ work_json() { # work_json <run stage> <task stage> [pr] [pipeline]
   }'
 }
 
+printf '\nparse_args\n'
+
+check "the agent CLI is claude unless --tool says otherwise" claude \
+  "$(parse_args 3 >/dev/null 2>&1; printf '%s' "$TOOL")"
+check "--tool amp still selects amp" amp \
+  "$(parse_args --tool amp 3 >/dev/null 2>&1; printf '%s' "$TOOL")"
+
 printf '\nwork_parse\n'
 
 work_json review_code review_code "https://github.com/acme/myapp/pull/12" >"$TMP/w1.json"

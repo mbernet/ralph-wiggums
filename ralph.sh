@@ -7,7 +7,7 @@
 # only memory is git and the API, which several workers share: it stores the
 # tasks, hands out work and applies the transitions (docs/central-prd-spec.md).
 #
-#   ./ralph.sh [--tool amp|claude] [max_iterations] [options]
+#   ./ralph.sh [--tool claude|amp] [max_iterations] [options]
 #   ./ralph.sh --import <prd.json>
 #   ./ralph.sh --help
 #
@@ -82,7 +82,7 @@ LEDGER_SHOWN="$LEDGER" # dry runs write to a separate file; this is what we repo
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
 LOG_DIR="$RALPH_DIR/logs/$RUN_ID"
 
-TOOL="amp"
+TOOL="claude"
 MAX_ITERATIONS=10
 
 # Tier -> model. Model ids age; override via env.
@@ -830,11 +830,11 @@ usage() {
 ${C_BOLD}ralph.sh${C_RESET} - autonomous agent loop over the Ralph task API
 
   ${C_BOLD}Usage${C_RESET}
-    ./ralph.sh [--tool amp|claude] [max_iterations] [options]
+    ./ralph.sh [--tool claude|amp] [max_iterations] [options]
     ./ralph.sh --import <prd.json>
 
   ${C_BOLD}Options${C_RESET}
-    --tool <amp|claude>   agent CLI to run (default: amp)
+    --tool <claude|amp>   agent CLI to run (default: claude)
     <number>             max agent runs (default: 10); a task takes one per stage
     --story <US-00X>     work on this task only, skipping the eligibility rules
     --import <file>      create or update the project and its tasks from a PRD, then exit
