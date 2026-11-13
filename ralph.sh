@@ -1634,6 +1634,14 @@ classify_result() { # classify_result <stderr log>
     ITER_CLASS="auth"
   fi
   shopt -u nocasematch
+
+  # An error with no output and no cost: the model API refused the call before
+  # the agent did anything. Not the task's fault, so it is retried like a rate
+  # limit instead of counting towards sick.
+  if [[ "$ITER_CLASS" == "ok" && "$RES_IS_ERR" == "1" ]] && ((RES_OUT == 0 && RES_COST_U == 0)); then
+    ITER_CLASS="unavailable"
+  fi
+  return 0
 }
 
 # What the agent hands back: a JSON file at $RESULT_FILE with `outcome`, `body`
@@ -2548,7 +2556,7 @@ iteration_summary() {
       sym="$G_OK"
       col="$C_GREEN"
       ;;
-    ratelimit)
+    ratelimit | unavailable)
       sym="$G_WARN"
       col="$C_YELLOW"
       ;;
@@ -2772,9 +2780,10 @@ run_iteration() {
     ITER_OUTCOME="none" ITER_BY_SCRIPT=0
     case "$ITER_CLASS" in
       auth) verdict="auth" ;;
-      ratelimit)
+      ratelimit | unavailable)
         why="ratelimit"
         RESULT_ERR="rate limited"
+        [[ "$ITER_CLASS" == "unavailable" ]] && RESULT_ERR="the model API failed before any work: ${RES_TEXT:0:120}"
         now="$(date +%s)"
         if ((WIN_PCT >= 90 && WIN_RESET > now)) && [[ "$WIN_SRC" != "none" ]]; then
           back=$((WIN_RESET - now + 30))
@@ -2884,7 +2893,7 @@ run_iteration() {
     printf '\n'
     case "$why" in
       ratelimit)
-        warn "rate limited - $STORY_ID $WORK_STAGE keeps its claim and will be retried"
+        warn "$RESULT_ERR - $STORY_ID $WORK_STAGE keeps its claim and will be retried"
         countdown "$back" "backoff" "$C_RED"
         window_probe
         ;;

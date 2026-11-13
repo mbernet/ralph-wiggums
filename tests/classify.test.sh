@@ -65,5 +65,13 @@ check "error about the usage limit is ratelimit" ratelimit \
 check "auth failure reported only on stderr is auth" auth \
   "$(classify "" 'Error: not logged in')"
 
+# The model API refused the call before the agent did anything (seen: a
+# Cloudflare 403 for a few minutes). It is the API's fault, not the task's,
+# so it must not count towards making the task sick.
+check "API error before any work is unavailable" unavailable \
+  "$(classify '{"type":"result","subtype":"success","is_error":true,"duration_ms":409,"num_turns":1,"result":"Failed to authenticate. API Error: 403 Attention Required! | Cloudflare","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"api_error_status":403}')"
+check "error after real work is still the agent's" ok \
+  "$(classify '{"type":"result","subtype":"success","is_error":true,"num_turns":40,"result":"Stopped.","total_cost_usd":1.2,"usage":{"input_tokens":50,"output_tokens":9000}}')"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 ((FAIL == 0))
