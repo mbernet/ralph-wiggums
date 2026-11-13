@@ -1620,6 +1620,10 @@ classify_result() { # classify_result <stderr log>
     return 0
   fi
 
+  # A run that ended well is not searched for failure words: its text is the
+  # agent's summary of the work, which may well mention /login or a 429.
+  [[ "$ITER_CLASS" == "ok" && "$RES_IS_ERR" == "0" ]] && return 0
+
   hay="$RES_TEXT"$'\n'"$(tail -c 4096 "$errlog" 2>/dev/null || true)"
   shopt -s nocasematch
   if [[ "$hay" == *"usage limit"* || "$hay" == *"rate_limit"* || "$hay" == *"rate limit"* ||
