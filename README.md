@@ -112,6 +112,13 @@ RALPH_WORKER=vps-1
 | `RALPH_PROJECT` | slug of the project to work on |
 | `RALPH_WORKER` | stable name of this worker (default: the hostname). The server uses it to give a worker its own tasks first |
 
+Two optional settings change where the work happens. A project that sets neither works as before.
+
+| Variable | Meaning |
+|----------|---------|
+| `RALPH_BASE_BRANCH` | the branch every task starts from and every pull request goes into, such as the integration branch of a phase. Unset: the repo's default branch (`origin/HEAD`). It must exist on `origin` |
+| `RALPH_WORKTREE` | the directory the agents work in, instead of the one `ralph.sh` starts in. Lets a git worktree of the project stand in for the worker clone; `ralph.sh` and its prompts stay where they are |
+
 ### Configure Amp auto-handoff (recommended)
 
 Add to `~/.config/amp/settings.json`:
