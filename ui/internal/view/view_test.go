@@ -72,51 +72,6 @@ func fits(t *testing.T, what string, out string, width int) {
 	}
 }
 
-func TestEveryFooterFitsTheTerminal(t *testing.T) {
-	v := plainView()
-	for _, scenario := range []string{"mixed", "reject"} {
-		s := state.New()
-		for _, e := range dryRun(t, scenario) {
-			s.Apply(e)
-			for _, w := range []int{60, 80, 132} {
-				o := Options{Width: w, Now: e.Ts, Live: true}
-				out := v.Footer(s, o)
-				fits(t, scenario+" footer after "+e.Type, out, w)
-				if n := strings.Count(out, "\n") + 1; n > 7 {
-					t.Errorf("the footer is %d lines tall after %s", n, e.Type)
-				}
-			}
-		}
-	}
-}
-
-func TestTheFooterShowsTheStageInProgress(t *testing.T) {
-	v := plainView()
-	s := state.New()
-	for _, e := range dryRun(t, "mixed") {
-		s.Apply(e)
-		if e.Type == "agent.tool" {
-			break
-		}
-	}
-	out := v.Footer(s, Options{Width: 100, Now: s.LastTs})
-	for _, want := range []string{s.Stage.Task.ID, s.Stage.Stage, "Read"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the footer lacks %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestTheFooterCountsDownAWait(t *testing.T) {
-	v := plainView()
-	s := state.New()
-	s.Apply(mustDecode(t, `{"v":1,"ts":1000,"type":"wait.start","kind":"throttle","seconds":300,"until":1300}`))
-	out := v.Footer(s, Options{Width: 100, Now: 1060})
-	if !strings.Contains(out, "throttle") || !strings.Contains(out, "4m 00s") {
-		t.Errorf("the footer does not count down:\n%s", out)
-	}
-}
-
 func TestTheScrollbackTellsTheWholeRun(t *testing.T) {
 	v := plainView()
 	var buf bytes.Buffer
@@ -252,14 +207,14 @@ func TestTruncLeftKeepsTheEndWithinTheWidth(t *testing.T) {
 	}
 }
 
-func TestAStageThePipelineDidNotHaveDoesNotBreakTheFooter(t *testing.T) {
+func TestAStageThePipelineDidNotHaveDoesNotBreakTheScreen(t *testing.T) {
 	v := plainView()
 	s := state.New()
 	s.Apply(mustDecode(t, `{"v":1,"ts":1,"type":"session.start","project":"p","worker":"w","pipeline":["implement","review_functional"]}`))
 	// The project gained a third stage while this worker ran.
 	s.Apply(mustDecode(t, `{"v":1,"ts":2,"type":"stage.start","task":{"id":"US-9"},"stage":"security","pos":3,"count":3,"attempt":1}`))
 	for _, w := range []int{20, 40, 100} {
-		fits(t, "footer", v.Footer(s, Options{Width: w, Now: 3}), w)
+		fits(t, "screen", v.Screen(s, &Body{}, Options{Width: w, Height: 20, Now: 3}), w)
 	}
 }
 

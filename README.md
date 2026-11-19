@@ -321,22 +321,28 @@ subscription usage, which says nothing about amp's consumption.
 
 ## Output and Logs
 
-On a terminal, and once `ralph-ui` is built (`make -C ui`), the run is drawn by it.
-What happens goes up the scrollback: each stage as a card with its verdict
-(`US-002  review_code  ✓ pass → merge`), what it cost, and what a person should read,
-which is the assumptions, the feedback of a reject and the diagnosis of a sick task. A
-panel stays at the bottom, redrawn as the run goes: the pipeline with the stage in
-progress lit, the tools the agent is using, the claim's time left, the countdown of a
-wait, the tasks done, the 5h and 7d windows, the other workers and what needs you.
+On a terminal, and once `ralph-ui` is built (`make -C ui`), the run is drawn by it on
+the whole screen. A header names the project, the worker and the branch. The body
+holds the stage in progress, `● US-086  Promotion homes listing  (implement)`, with
+what the agent says and does under it, each with its icon: `✦` it says, `◇` it reads,
+`✎` it edits, `▶` it runs a command, `✗` a tool failed. When a stage ends it folds
+into a card with its verdict (`US-002  review_code  ✓ pass → merge`), what it cost,
+and what a person should read: the assumptions, the feedback of a reject and the
+diagnosis of a sick task. A status box at the bottom has what happens now (the stage
+and the claim's time left, or the countdown of a wait and why), the tasks done, the
+5h and 7d windows, the keys, the cost and what needs you. When the session ends the
+screen is given back and its report is left on the terminal.
 
 | Key | What it does |
 |-----|--------------|
 | `q` | Stop once the stage in progress is registered. `q` again takes it back |
 | `s` | Skip the wait in progress |
+| `o` | Open the PR of the task in the browser. The PR is always in the status box, and a link where the terminal supports them |
 | `v` | Detail of the agent's activity: quiet, normal, verbose |
-| `b` | Print the board of the project |
+| `b` | The board of the project, in the body. `b`, `q` or `Esc` closes it |
+| `↑` `↓` `PgUp` `PgDn` `Home` | Scroll the body back. `End` follows the newest again |
 | `z` | Screensaver: a full-screen plasma driven by the run. Any key brings the normal view back, with what happened in the meantime |
-| `?` | Help |
+| `?` | The rest of the session (run, pipeline, tool, pacing, worktree, logs) and every key |
 | `Ctrl-C` | Passed to the loop as in the plain output: twice in a row aborts |
 
 ```bash

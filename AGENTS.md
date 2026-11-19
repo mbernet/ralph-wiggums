@@ -24,7 +24,7 @@ shellcheck -x -S style ralph.sh tests/api.test.sh tests/events.test.sh tests/cla
 ./ralph.sh --dry-run --fast
 ./ralph.sh --dry-run --scenario throttle|hardstop|ratelimit|maxturns|complete|reject|sick|nowork|conflict
 
-# Build ralph-ui, then see a past run as it draws it
+# Build ralph-ui, then print the cards and lines of a past run
 make -C ui
 ui/bin/ralph-ui replay .ralph/logs/<run>
 
@@ -44,7 +44,7 @@ ui/bin/ralph-ui replay .ralph/logs/<run>
 - `docs/central-prd-spec.md`, `docs/task.schema.json` - The API the loop talks to
 - `skills/` - `prd` writes a PRD, `ralph` converts it to `prd.json` and imports it
 - `docs/events.md` - The event stream `ralph.sh` writes for its renderers
-- `ui/` - `ralph-ui` (Go, Bubble Tea): `event` decodes the stream, `state` folds it, `view` draws it, `saver` is the full-screen screensaver, `app` runs it
+- `ui/` - `ralph-ui` (Go, Bubble Tea): `event` decodes the stream, `state` folds it, `view` draws it (`Screen`: header, body, status box), `saver` is the screensaver, `app` runs it on the whole screen
 
 ## Patterns
 

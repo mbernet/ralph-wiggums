@@ -48,8 +48,6 @@ func (v *View) Report(s *state.State, o Options) string {
 			}
 		}
 		rows = append(rows, row("cost", cost))
-		tk := end.Tokens
-		rows = append(rows, row("tokens", fmt.Sprintf("in %s %s out %s %s cache %s", Tok(tk.In), g.Dot, Tok(tk.Out), g.Dot, Tok(tk.CacheRead))))
 	}
 	rows = append(rows, row("time", fmt.Sprintf("wall %s %s in agent %s %s throttled %s", Dur(end.WallS), g.Dot, Dur(end.AgentS), g.Dot, Dur(end.ThrottledS))))
 	if s.Window.Known() {

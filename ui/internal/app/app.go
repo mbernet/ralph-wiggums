@@ -1,6 +1,7 @@
-// Package app is the interactive ralph-ui: a Bubble Tea program in inline
-// mode. What happens goes up the scrollback, as plain output does, and a panel
-// of a few lines stays at the bottom, redrawn as the run goes. It never talks
+// Package app is the interactive ralph-ui: a Bubble Tea program on the whole
+// screen. A header names the project, the body holds the stages and what the
+// agents say, and a status box at the bottom has the meters and the keys. When
+// it ends, the report of the session is left on the terminal. It never talks
 // to the API and never runs the loop: it reads the events ralph.sh writes and,
 // in live mode, asks the loop to stop or to skip a wait through two files.
 package app
@@ -9,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -66,11 +69,15 @@ type model struct {
 	done     bool
 	gone     bool
 
-	// The saver takes the whole screen. What would go up the scrollback in
-	// the meantime is held and printed when it closes.
+	body   *view.Body
+	scroll int // how many lines the body is scrolled back; 0 follows the end
+	board  bool
+	after  string // printed on the terminal once the screen is given back
+	open   func(url string) error
+
+	// The saver takes the place of the screen while it is open.
 	saver  *saver.Saver
 	gen    int
-	held   []string
 	screen string // the last frame; drawn on the saver's clock, not per message
 }
 
@@ -103,8 +110,12 @@ func (m *model) opts() view.Options {
 	if m.cfg.MaxWidth > 0 && w > m.cfg.MaxWidth {
 		w = m.cfg.MaxWidth
 	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
 	o := view.Options{
-		Width: w, Now: time.Now().Unix(), Verbosity: m.verb,
+		Width: w, Height: h, Scroll: m.scroll, Board: m.board, HasPR: view.PR(m.s) != "", Now: time.Now().Unix(), Verbosity: m.verb,
 		Live: m.cfg.Mode == Live, Links: m.cfg.Links, Notify: m.cfg.Notify,
 		Stopping: m.stopping, Help: m.help, Spin: m.spin,
 	}
@@ -117,22 +128,6 @@ func (m *model) opts() view.Options {
 	return o
 }
 
-func printLines(lines []string) tea.Cmd {
-	if len(lines) == 0 {
-		return nil
-	}
-	return tea.Println(strings.Join(lines, "\n"))
-}
-
-// print sends lines up the scrollback, or holds them while the saver is open.
-func (m *model) print(lines []string) tea.Cmd {
-	if m.saver != nil {
-		m.held = append(m.held, lines...)
-		return nil
-	}
-	return printLines(lines)
-}
-
 func (m *model) openSaver() tea.Cmd {
 	p := termenv.Ascii
 	if m.cfg.Renderer != nil {
@@ -141,7 +136,7 @@ func (m *model) openSaver() tea.Cmd {
 	m.saver = saver.New(p, time.Now().UnixNano())
 	m.gen++
 	m.draw()
-	return tea.Batch(tea.EnterAltScreen, frame(m.gen))
+	return frame(m.gen)
 }
 
 func (m *model) draw() {
@@ -152,21 +147,17 @@ func (m *model) draw() {
 	m.screen = m.saver.Frame(m.s, w, h, time.Now())
 }
 
-// closeSaver gives the screen back, then prints what was held. With the saver
-// closed already it does nothing.
-func (m *model) closeSaver() tea.Cmd {
-	if m.saver == nil {
-		return nil
-	}
-	held := m.held
-	m.saver, m.held, m.screen = nil, nil, ""
+func (m *model) closeSaver() {
+	m.saver, m.screen = nil, ""
 	m.gen++
-	return tea.Sequence(tea.ExitAltScreen, printLines(held))
 }
 
-func (m *model) finish(lines ...string) tea.Cmd {
+// finish ends the program; what is in after goes on the terminal then.
+func (m *model) finish(after ...string) tea.Cmd {
 	m.done = true
-	return tea.Sequence(m.closeSaver(), printLines(lines), tea.Quit)
+	m.closeSaver()
+	m.after = strings.Join(after, "\n")
+	return tea.Quit
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -207,21 +198,34 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.saver != nil {
 			m.saver.Feed(msg.e)
 		}
-		lines := m.v.Scroll(m.s, msg.e, m.opts())
-		if msg.e.Type == "session.exit" {
-			return m, m.finish(lines...)
+		o := m.opts()
+		switch msg.e.Type {
+		case "session.end":
+			m.after = strings.Join(m.v.Scroll(m.s, msg.e, o), "\n")
+		case "session.exit":
+			return m, m.finish(append([]string{m.after}, m.v.Scroll(m.s, msg.e, o)...)...)
 		}
-		return m, tea.Sequence(m.print(lines), tea.SetWindowTitle(title(m.s)), next(m.ch))
+		// Scrolled back, the body stays where it is as lines come in.
+		before := 0
+		if m.scroll > 0 {
+			before = m.v.MaxScroll(m.s, m.body, o)
+		}
+		m.body.Add(m.v, m.s, msg.e, o)
+		if m.scroll > 0 {
+			m.scroll += m.v.MaxScroll(m.s, m.body, o) - before
+		}
+		return m, tea.Batch(m.notify(msg.e), tea.SetWindowTitle(title(m.s)), next(m.ch))
 
 	case tea.KeyMsg:
 		k := msg.String()
 		if m.saver != nil {
 			// Any key brings the normal view back, and does nothing else.
 			// Ctrl-C keeps its meaning.
+			m.closeSaver()
 			if k != "ctrl+c" {
-				return m, m.closeSaver()
+				return m, nil
 			}
-			return m, tea.Sequence(m.closeSaver(), m.key(k))
+			return m, m.key(k)
 		}
 		return m, m.key(k)
 	}
@@ -231,7 +235,39 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) key(k string) tea.Cmd {
 	live := m.cfg.Mode == Live
 	ctl := m.s.Session.Control
+	if m.board || m.help {
+		// The board and the help take the body: the keys that open them,
+		// q and Esc give it back.
+		switch k {
+		case "b":
+			m.board, m.help = !m.board, false
+		case "?":
+			m.help, m.board = !m.help, false
+		case "q", "esc":
+			m.board, m.help = false, false
+		case "ctrl+c":
+			m.board, m.help = false, false
+			return m.key(k)
+		}
+		return nil
+	}
+	page := m.height - 10 // the body, less a line kept from the last page
+	if page < 1 {
+		page = 1
+	}
 	switch k {
+	case "up", "k":
+		m.scrollBy(1)
+	case "down", "j":
+		m.scrollBy(-1)
+	case "pgup":
+		m.scrollBy(page)
+	case "pgdown", " ":
+		m.scrollBy(-page)
+	case "home", "g":
+		m.scrollBy(1 << 30)
+	case "end", "G":
+		m.scroll = 0
 	case "q":
 		if !live {
 			return m.finish()
@@ -245,15 +281,20 @@ func (m *model) key(k string) tea.Cmd {
 			_ = os.WriteFile(ctl.Stop, nil, 0o644)
 		}
 		m.stopping = !m.stopping
+	case "o":
+		if url := view.PR(m.s); url != "" && m.open != nil {
+			open := m.open
+			return func() tea.Msg { _ = open(url); return nil }
+		}
 	case "s":
 		if live && ctl.Skip != "" && m.s.Wait != nil {
 			_ = os.WriteFile(ctl.Skip, nil, 0o644)
 		}
 	case "v":
 		m.verb = (m.verb + 1) % 3
-		return tea.Println(m.v.Notice("detail: " + m.verb.String()))
+		m.body.Note(m.v, "detail: "+m.verb.String()+", from the next message on")
 	case "b":
-		return tea.Println(m.v.Board(m.s, m.opts()))
+		m.board = true
 	case "?":
 		m.help = !m.help
 	case "z":
@@ -276,7 +317,26 @@ func (m *model) View() string {
 	if m.saver != nil {
 		return m.screen
 	}
-	return m.v.Footer(m.s, m.opts())
+	return m.v.Screen(m.s, m.body, m.opts())
+}
+
+func (m *model) scrollBy(n int) {
+	o := m.opts()
+	o.Scroll = 0
+	m.scroll = max(0, min(m.scroll+n, m.v.MaxScroll(m.s, m.body, o)))
+}
+
+// notify sends a desktop notification (OSC 9) when a task falls sick. The
+// screen is Bubble Tea's, so it goes straight to the terminal.
+func (m *model) notify(e event.Event) tea.Cmd {
+	end, ok := e.Body.(event.StageEnd)
+	if !m.cfg.Notify || !ok || end.Outcome != "sick" {
+		return nil
+	}
+	return func() tea.Msg {
+		fmt.Fprintf(os.Stdout, "\x1b]9;%s is sick\x07", end.Task)
+		return nil
+	}
 }
 
 func title(s *state.State) string {
@@ -296,6 +356,15 @@ func title(s *state.State) string {
 		parts = append(parts, s.End.State)
 	}
 	return strings.Join(parts, " · ")
+}
+
+// openURL hands a URL to the desktop, as a click on it would.
+func openURL(url string) error {
+	bin := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		bin = "open"
+	}
+	return exec.Command(bin, url).Run()
 }
 
 func alive(pid int) bool {
@@ -332,15 +401,20 @@ func Run(ctx context.Context, cfg Config) error {
 		s:    state.New(),
 		ch:   event.Follow(ctx, cfg.Events, 100*time.Millisecond),
 		verb: cfg.Verbosity,
+		body: &view.Body{},
+		open: openURL,
 	}
 	// The terminal is opened by name: on macOS the reader Bubble Tea uses sees
 	// no keys from a tty that arrived as a redirected stdin.
-	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithInputTTY()}
+	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithInputTTY(), tea.WithAltScreen()}
 	if cfg.Mode == Live {
 		// Ctrl-C reaches the program as a key, and is passed on to ralph.sh.
 		opts = append(opts, tea.WithoutSignalHandler())
 	}
 	_, err := tea.NewProgram(m, opts...).Run()
+	if m.after != "" {
+		fmt.Println(m.after)
+	}
 	if err == tea.ErrProgramKilled && ctx.Err() != nil {
 		return nil
 	}

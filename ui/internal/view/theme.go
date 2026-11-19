@@ -1,6 +1,7 @@
-// Package view draws the state: the lines that go up the scrollback, the live
-// panel at the bottom, the board and the final report. Every function takes a
-// width and returns plain strings, so it can be tested without a terminal.
+// Package view draws the state: the full screen of the live app (Screen, with
+// its Body), the lines of a replay, the board and the final report. Every
+// function takes a size and returns plain strings, so it can be tested without
+// a terminal.
 package view
 
 import "github.com/charmbracelet/lipgloss"
@@ -9,6 +10,8 @@ type Glyphs struct {
 	OK, Bad, Warn, Reject, Sick, Lost, Drop, Arrow, Dot, Bullet, Tool, Flag  string
 	Clock, Retry, Pause, Stop, Full, Empty, Rule, Pipe, Pending, Block, Play string
 	Bar                                                                      string
+	Say, Read, Edit, Run, Compact                                            string
+	Corners                                                                  [4]string // ┌ ┐ └ ┘
 	Spin                                                                     []string
 }
 
@@ -17,7 +20,9 @@ var unicodeGlyphs = Glyphs{
 	Arrow: "→", Dot: "·", Bullet: "●", Tool: "▸", Flag: "⚑", Clock: "◷", Retry: "↻",
 	Pause: "⏸", Stop: "■", Full: "▰", Empty: "▱", Rule: "─", Pipe: "━", Pending: "○",
 	Block: "⊘", Play: "▶", Bar: "│",
-	Spin: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+	Say: "✦", Read: "◇", Edit: "✎", Run: "▶", Compact: "⟳",
+	Corners: [4]string{"╭", "╮", "╰", "╯"},
+	Spin:    []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 }
 
 var asciiGlyphs = Glyphs{
@@ -25,7 +30,9 @@ var asciiGlyphs = Glyphs{
 	Arrow: "->", Dot: "-", Bullet: "*", Tool: ">", Flag: "!", Clock: "@", Retry: "~",
 	Pause: "||", Stop: "#", Full: "#", Empty: ".", Rule: "-", Pipe: "=", Pending: "o",
 	Block: "/", Play: ">", Bar: "|",
-	Spin: []string{"-", "\\", "|", "/"},
+	Say: "*", Read: "r", Edit: "e", Run: "$", Compact: "~",
+	Corners: [4]string{"+", "+", "+", "+"},
+	Spin:    []string{"-", "\\", "|", "/"},
 }
 
 // Theme holds the styles. Colours are semantic and adapt to a light or dark
@@ -34,6 +41,7 @@ type Theme struct {
 	G                                     Glyphs
 	Accent, Strong, Muted, Faint          lipgloss.Style
 	OK, Warn, Bad, Info, Badge, Key, Done lipgloss.Style
+	KeyCap                                lipgloss.Style // a key, drawn as a key
 	tiers                                 map[string]lipgloss.Style
 }
 
@@ -61,6 +69,7 @@ func newTheme(r *lipgloss.Renderer, ascii bool) Theme {
 		Badge:  st().Bold(true).Foreground(color("#18181B", "#FAFAFA")).Background(accent).Padding(0, 1),
 		Key:    st().Foreground(color("#D4D4D8", "#3F3F46")).Bold(true),
 		Done:   st().Foreground(color("#34D399", "#047857")).Bold(true),
+		KeyCap: st().Bold(true).Foreground(color("#FAFAFA", "#18181B")).Background(color("#3F3F46", "#D4D4D8")).Padding(0, 1),
 		tiers: map[string]lipgloss.Style{
 			"low":  st().Foreground(color("#67E8F9", "#0E7490")),
 			"med":  st().Foreground(color("#60A5FA", "#1D4ED8")),

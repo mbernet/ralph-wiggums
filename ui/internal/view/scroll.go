@@ -27,6 +27,10 @@ func (v Verbosity) String() string {
 
 type Options struct {
 	Width     int
+	Height    int // the full screen: the rows of the terminal
+	Scroll    int // the full screen: how many lines the body is scrolled back
+	Board     bool
+	HasPR     bool  // o opens the PR of the task
 	Now       int64 // unix seconds, for the clocks that count down
 	Verbosity Verbosity
 	Live      bool // the panel can act: stop, skip
@@ -162,7 +166,7 @@ func (v *View) Scroll(s *state.State, e event.Event, o Options) []string {
 			if b.Action == "wait_window" {
 				what = "holding for the window reset"
 			}
-			return []string{trunc(v.stamp(e.Ts)+t.Warn.Render(g.Pause+" "+what)+t.Faint.Render("  "+b.Why), w)}
+			return []string{trunc(v.stamp(e.Ts)+t.Warn.Render(g.Pause+" "+what), w)}
 		case "stop":
 			return []string{trunc(v.stamp(e.Ts)+t.Bad.Render(g.Stop+" pacing stops the run")+t.Faint.Render("  "+b.Why), w)}
 		}
@@ -286,26 +290,15 @@ func (v *View) card(s *state.State, ts int64, b event.StageEnd, o Options) []str
 		verdict = t.Bad.Render(g.Bad+" no result") + t.Faint.Render("  "+why)
 	}
 	head := v.stamp(ts) + t.Strong.Render(b.Task) + "  " + b.Stage + "  " + verdict + bell
-	lines := []string{trunc(head, w)}
-
-	var meta []string
-	meta = append(meta, Dur(b.DurS))
+	// How long and what it cost, and the PR: the rest is in the logs.
+	meta := []string{Dur(b.DurS)}
 	if b.CostU > 0 {
 		meta = append(meta, USD(b.CostU))
 	}
-	if b.Turns > 0 {
-		meta = append(meta, plural(b.Turns, "turn", "turns"))
-	}
-	if b.WinDelta > 0 {
-		meta = append(meta, fmt.Sprintf("+%d%% 5h", b.WinDelta))
-	}
-	if b.Commit != nil {
-		meta = append(meta, b.Commit.Sha+" "+b.Commit.Subject)
-	}
 	if b.PR != "" && (b.Outcome == "pass" || b.Outcome == "reject") {
-		meta = append(meta, v.link(o, b.PR, "PR "+prNumber(b.PR)))
+		meta = append(meta, v.prLink(o, b.PR))
 	}
-	lines = append(lines, trunc(v.indent(t.Faint.Render(strings.Join(meta, " "+g.Dot+" "))), w))
+	lines := []string{spread(head, t.Faint.Render(strings.Join(meta, " "+g.Dot+" ")), w)}
 
 	text := w - gutter - 4
 	switch b.Outcome {
@@ -322,23 +315,20 @@ func (v *View) card(s *state.State, ts int64, b event.StageEnd, o Options) []str
 			lines = append(lines, v.indent(lead+l))
 		}
 	}
-	if n := len(b.Assumptions); n > 0 {
-		lines = append(lines, v.indent(t.Warn.Render(g.Flag+" "+plural(n, "assumption", "assumptions"))))
-		for _, a := range b.Assumptions {
-			for i, l := range wrap(a, text, 3) {
-				lead := "    "
-				if i == 0 {
-					lead = "  " + t.Faint.Render(g.Dot) + " "
-				}
-				lines = append(lines, v.indent(lead+t.Muted.Render(l)))
+	for _, a := range b.Assumptions {
+		for i, l := range wrap(a, text, 3) {
+			lead := "  "
+			if i == 0 {
+				lead = t.Warn.Render(g.Flag) + " "
 			}
+			lines = append(lines, v.indent(lead+t.Muted.Render(l)))
 		}
 	}
 	if b.Summary != "" && o.Verbosity >= Normal {
-		for i, l := range wrap(b.Summary, text, 3) {
-			lead := "  "
+		for i, l := range wrap(b.Summary, text-9, 3) {
+			lead := "         "
 			if i == 0 {
-				lead = t.OK.Render("Σ") + " "
+				lead = t.Faint.Render("summary  ")
 			}
 			lines = append(lines, v.indent(lead+t.Muted.Render(l)))
 		}
@@ -347,6 +337,24 @@ func (v *View) card(s *state.State, ts int64, b event.StageEnd, o Options) []str
 		lines = append(lines, trunc(v.indent(t.Faint.Render("hint  "+hint)), w))
 	}
 	return lines
+}
+
+// PR is the pull request a person would open now: the one of the task in
+// progress, or, between stages, the one of the last stage that ended.
+func PR(s *state.State) string {
+	if s.Stage != nil {
+		return s.Stage.Task.PR
+	}
+	for i := len(s.History) - 1; i >= 0; i-- {
+		if pr := s.History[i].PR; pr != "" {
+			return pr
+		}
+	}
+	return ""
+}
+
+func (v *View) prLink(o Options, url string) string {
+	return v.link(o, url, v.t.Info.Render("PR "+prNumber(url)))
 }
 
 func classHint(b event.StageEnd) string {
