@@ -262,3 +262,17 @@ func TestAStageThePipelineDidNotHaveDoesNotBreakTheFooter(t *testing.T) {
 		fits(t, "footer", v.Footer(s, Options{Width: w, Now: 3}), w)
 	}
 }
+
+func TestTheHeaderNamesTheBaseBranchAndTheWorktree(t *testing.T) {
+	v := plainView()
+	b := event.SessionStart{Run: "r", Project: "p", Worker: "w", Tool: "claude",
+		BaseBranch: "f3", Worktree: "/work/p-wt", Logs: "logs/r"}
+	b.Pace.Mode = "off"
+	out := strings.Join(v.header(b, Options{Width: 100}), "\n")
+	fits(t, "header", out, 100)
+	for _, want := range []string{"f3", "/work/p-wt"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the header does not name %s:\n%s", want, out)
+		}
+	}
+}

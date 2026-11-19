@@ -46,6 +46,8 @@ type SessionStart struct {
 	Worker      string            `json:"worker"`
 	API         string            `json:"api"`
 	Branch      string            `json:"branch"`
+	BaseBranch  string            `json:"baseBranch"`
+	Worktree    string            `json:"worktree"`
 	Pipeline    []string          `json:"pipeline"`
 	Tool        string            `json:"tool"`
 	ToolVersion string            `json:"toolVersion"`

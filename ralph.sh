@@ -32,7 +32,16 @@ umask 022
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-RALPH_DIR="${RALPH_DIR:-$SCRIPT_DIR/.ralph}"
+# A relative path means where ralph.sh was started: RALPH_WORKTREE moves the
+# loop into another directory later, and every path must survive that.
+abs_path() { # abs_path <path>
+  case "$1" in
+    /*) printf '%s' "$1" ;;
+    *) printf '%s/%s' "$PWD" "${1#./}" ;;
+  esac
+}
+
+RALPH_DIR="$(abs_path "${RALPH_DIR:-$SCRIPT_DIR/.ralph}")"
 
 # Settings can live in $RALPH_DIR/env as KEY=value lines, so the API token never
 # has to be exported or committed. The environment wins over the file, and the
@@ -74,7 +83,7 @@ RALPH_API_TIMEOUT_S="${RALPH_API_TIMEOUT_S:-30}"
 RALPH_API_RETRIES="${RALPH_API_RETRIES:-5}"               # when the API does not answer
 RALPH_STASH="${RALPH_STASH:-1}"                           # stash leftovers of a dead run before a stage
 RALPH_AGENT_CMD="${RALPH_AGENT_CMD:-}"                    # run this instead of amp/claude (prompt on stdin)
-PROMPTS_DIR="${RALPH_PROMPTS_DIR:-$SCRIPT_DIR/prompts}"
+PROMPTS_DIR="$(abs_path "${RALPH_PROMPTS_DIR:-$SCRIPT_DIR/prompts}")"
 # Optional. The directory the agents work in, typically a git worktree of the
 # project, so a worker switching task branches never touches the checkout a
 # person works in. Unset: the agents work where ralph.sh is started.
@@ -1117,7 +1126,7 @@ preflight_workspace() {
       die "RALPH_WORKTREE '$RALPH_WORKTREE' is not a git work tree"
   fi
   if [[ -n "$RALPH_BASE_BRANCH" ]] && ((!DRY_RUN)); then
-    git ls-remote --exit-code --heads origin "$RALPH_BASE_BRANCH" >/dev/null 2>&1 ||
+    git ls-remote --exit-code origin "refs/heads/$RALPH_BASE_BRANCH" >/dev/null 2>&1 ||
       die "RALPH_BASE_BRANCH '$RALPH_BASE_BRANCH' does not exist on origin"
   fi
   return 0
@@ -1391,6 +1400,24 @@ result_rules() {
   return 0
 }
 
+# The base branch of the task in hand. Tasks are shared by every worker of the
+# project and RALPH_BASE_BRANCH is one worker's setting, so once a task has a
+# pull request its base is the truth: a worker set up for another base would
+# otherwise merge the wrong branch into it. Empty: the repo's default branch.
+TASK_BASE=""
+task_base() {
+  local pr_base=""
+  TASK_BASE="$RALPH_BASE_BRANCH"
+  [[ -n "$TASK_PR" ]] && ((!DRY_RUN)) || return 0
+  pr_base="$(gh pr view "$TASK_PR" --json baseRefName -q .baseRefName 2>/dev/null)" || return 0
+  [[ -n "$pr_base" ]] || return 0
+  if [[ -n "$RALPH_BASE_BRANCH" && "$pr_base" != "$RALPH_BASE_BRANCH" ]]; then
+    warn "$STORY_ID's pull request goes into $pr_base, not $RALPH_BASE_BRANCH - this run follows the pull request"
+  fi
+  TASK_BASE="$pr_base"
+  return 0
+}
+
 # The prompt of one run: the shared rules, the prompt of the stage, and the
 # context of this iteration - the whole answer of the API minus the claim, which
 # is the script's business.
@@ -1404,8 +1431,10 @@ build_prompt() {
     printf ' (%s of %s in the pipeline)' "$STAGE_POS" "$STAGE_COUNT"
   fi
   printf '.\nThis session runs on model `%s` (tier `%s`), chosen for it.\n\n' "$MODEL" "$STORY_TIER"
-  if [[ -n "$RALPH_BASE_BRANCH" ]]; then
-    printf 'The base branch of this run is `%s`.\n\n' "$RALPH_BASE_BRANCH"
+  if [[ -n "$TASK_BASE" ]]; then
+    printf 'The base branch of this run is `%s`: it is `origin/%s` wherever a prompt says `origin/<base>`.\n\n' "$TASK_BASE" "$TASK_BASE"
+  else
+    printf 'The base branch of this run is the default branch of the repo: it is `origin/HEAD` wherever a prompt says `origin/<base>`.\n\n'
   fi
   printf 'When you finish, write your result as one JSON object to this exact absolute path, which may lie outside your working directory. A summary in your last message is not a result.\n\n'
   printf '    %s\n\n' "$RESULT_FILE"
@@ -1682,21 +1711,25 @@ RESULT_FILE="" RESULT_JSON="" RESULT_ERR="" RESULT_OUTCOME=""
 # The same position rules the server applies, checked here so that a result it
 # would refuse costs one more agent run instead of a wasted claim. A field that
 # is out of place is dropped; a field that is missing is an error.
-# An agent that shortens the result path to one relative to ralph's own repo
-# writes it under the directory it works in. When that is not ralph's repo (a
-# worktree, a project that keeps ralph in it), fetch the file from there
-# instead of losing the run.
+# An agent that shortens the result path to one relative to ralph's own repo,
+# or to ralph's own directory, writes it under the directory it works in. When
+# that is not where ralph lives (a worktree, a project that keeps ralph in it),
+# fetch the file from there instead of losing the run.
 result_recover() { # result_recover <file>
-  local file="$1" root rel stray
+  local file="$1" root base rel stray
   [[ -s "$file" ]] && return 0
   # The logical path, like $file and pwd: --show-toplevel resolves symlinks.
-  root="$(cd "$SCRIPT_DIR" 2>/dev/null && cd "./$(git rev-parse --show-cdup 2>/dev/null)" && pwd)" || return 0
-  rel="${file#"$root"/}"
-  [[ "$rel" != "$file" && "$(pwd)" != "$root" ]] || return 0
-  stray="$(pwd)/$rel"
-  [[ -s "$stray" ]] || return 0
-  mkdir -p "$(dirname "$file")" && mv "$stray" "$file" &&
-    warn "the result was written to $stray - moved it to where ralph reads it"
+  root="$(cd "$SCRIPT_DIR" 2>/dev/null && cd "./$(git rev-parse --show-cdup 2>/dev/null)" && pwd)" || root=""
+  for base in "$root" "$SCRIPT_DIR"; do
+    [[ -n "$base" ]] || continue
+    rel="${file#"$base"/}"
+    [[ "$rel" != "$file" ]] || continue
+    stray="$(pwd)/$rel"
+    [[ "$stray" != "$file" && -s "$stray" ]] || continue
+    mkdir -p "$(dirname "$file")" && mv "$stray" "$file" &&
+      warn "the result was written to $stray - moved it to where ralph reads it"
+    return 0
+  done
   return 0
 }
 
@@ -2768,6 +2801,7 @@ run_iteration() {
 
   WIN_PCT_BEFORE="$WIN_PCT"
   head_before="$(git_head)"
+  task_base
 
   while :; do
     RAW_LOG="$LOG_DIR/iter-$(printf '%02d' "$ITER").stream.jsonl"
@@ -3024,8 +3058,10 @@ ev_session_start() {
     --argjson max "$MAX_ITERATIONS" --argjson dry "$DRY_RUN" --arg scenario "$SCENARIO" \
     --arg logs "${LOG_DIR#"$SCRIPT_DIR"/}" --arg story "$FORCE_STORY" --argjson pid "$$" \
     --arg stop "$STOP_FILE" --arg skip "$SKIP_FILE" \
+    --arg base "$RALPH_BASE_BRANCH" --arg wt "$([[ -n "$RALPH_WORKTREE" ]] && pwd)" \
     '{run: $run, project: $project, description: $desc, worker: $worker, api: $api,
-      branch: $branch, pipeline: ($pipeline | split("\n") | map(select(length > 0))),
+      branch: $branch, baseBranch: (if $base == "" then null else $base end),
+      worktree: (if $wt == "" then null else $wt end), pipeline: ($pipeline | split("\n") | map(select(length > 0))),
       tool: $tool, toolVersion: $version, tiers: {low: $low, med: $med, high: $high},
       pace: {mode: $pace, budgetPct: $budget, weekGuardPct: $guard,
              reason: (if $paceoff == "" then null else $paceoff end)},

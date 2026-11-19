@@ -94,12 +94,36 @@ check "RALPH_BASE_BRANCH on origin: goes on" "0" "$?"
 ) >/dev/null 2>&1
 check "RALPH_BASE_BRANCH missing on origin: stops" "1" "$(($? != 0))"
 
+# ls-remote matches a pattern against the end of a ref: user/f9 is not f9.
+git_quiet -C "$TMP/project" push origin main:refs/heads/user/f9
+(
+  cd "$TMP/project" || exit 1
+  RALPH_WORKTREE="" RALPH_BASE_BRANCH="f9"
+  preflight_workspace
+) >/dev/null 2>&1
+check "RALPH_BASE_BRANCH that only ends another branch's name: stops" "1" "$(($? != 0))"
+
 (
   cd "$TMP/project" || exit 1
   DRY_RUN=1 RALPH_WORKTREE="" RALPH_BASE_BRANCH="f9"
   preflight_workspace
 ) >/dev/null 2>&1
 check "dry run: the base branch is not looked up" "0" "$?"
+
+printf '\nrelative paths with RALPH_WORKTREE\n'
+
+# Relative RALPH_DIR and RALPH_PROMPTS_DIR mean where ralph.sh was started, not
+# the worktree it moves into.
+cp -R "$TEST_DIR/../prompts" "$TMP/project/prompts"
+(
+  cd "$TMP/project" || exit 1
+  RALPH_DIR=.ralph RALPH_PROMPTS_DIR=prompts RALPH_WORKTREE=../project-wt \
+    "$TEST_DIR/../ralph.sh" --dry-run --fast --scenario complete --quiet
+) >"$TMP/out" 2>&1
+check "a dry run with relative paths and a worktree ends well" "0" "$?"
+check "its logs stay where ralph.sh was started" "1" "$(find "$TMP/project/.ralph/logs" -name '*.result.json' 2>/dev/null | head -1 | grep -c .)"
+check "nothing of ralph's is written into the worktree" "0" "$(find "$TMP/project-wt/.ralph" 2>/dev/null | grep -c .)"
+rm -rf "$TMP/project/prompts" "$TMP/project/.ralph"
 
 printf '\nresult_recover\n'
 
@@ -129,6 +153,19 @@ check "the moved result keeps its content" '{"outcome":"pass"}' "$(cat "$want")"
 check "a result already in place is left alone" '{"outcome":"pass"}' "$(cat "$TMP/out")"
 rm -f "$TMP/project-wt/$rel"
 
+# The same mistake, relative to ralph's own directory instead of the project.
+rm -f "$want"
+short=".ralph/logs/run/iter-01.result.json"
+(
+  cd "$TMP/project-wt" || exit 1
+  mkdir -p "$(dirname "$short")"
+  printf '{"outcome":"short"}' >"$short"
+  result_recover "$want"
+  [[ ! -e "$short" ]] && cat "$want"
+) >"$TMP/out" 2>/dev/null
+check "a result relative to ralph's directory is moved too" '{"outcome":"short"}' "$(cat "$TMP/out")"
+rm -rf "$TMP/project-wt/.ralph"
+
 rm -f "$want"
 (
   cd "$TMP/project" || exit 1
@@ -148,10 +185,38 @@ STORY_ID="US-001" STORY_TITLE="t" STORY_TIER="med" MODEL="m"
 STAGE_POS=1 STAGE_COUNT=4 STAGE_FIRST=1 TASK_PR="" PIPE_FIRST="implement"
 RESULT_FILE="$TMP/result.json" ATTEMPT_NOTE=""
 
-RALPH_BASE_BRANCH=""
-check "no base branch: the prompt names none" "0" "$(build_prompt | grep -c 'The base branch of this run')"
+# gh answers for the task's pull request: its base is $FAKE_PR_BASE, and an
+# empty one is a gh that fails.
+mkdir -p "$TMP/bin"
+cat >"$TMP/bin/gh" <<'SH'
+#!/bin/sh
+[ "$1 $2" = "pr view" ] && [ -n "$FAKE_PR_BASE" ] || exit 1
+printf '%s\n' "$FAKE_PR_BASE"
+SH
+chmod +x "$TMP/bin/gh"
+PATH="$TMP/bin:$PATH"
+export FAKE_PR_BASE=""
+
+base_in_prompt() { # base_in_prompt <branch> -> how many times the prompt names origin/<branch>
+  task_base >/dev/null 2>&1
+  build_prompt | grep -c "origin/$1"
+}
+
+RALPH_BASE_BRANCH="" TASK_PR=""
+check "no base branch: the prompt names origin/HEAD" "1" "$(base_in_prompt HEAD)"
 RALPH_BASE_BRANCH="f3"
-check "a base branch: the prompt names it" "1" "$(build_prompt | grep -c 'The base branch of this run is `f3`')"
+check "a base branch: the prompt names it" "1" "$(base_in_prompt f3)"
+
+TASK_PR="https://github.com/o/r/pull/7" STAGE_FIRST=0
+FAKE_PR_BASE="f3" RALPH_BASE_BRANCH=""
+check "a later stage follows the base of the task's PR, not this worker's" "1" "$(base_in_prompt f3)"
+FAKE_PR_BASE="f3" RALPH_BASE_BRANCH="f4"
+check "the PR's base wins over a different RALPH_BASE_BRANCH" "0" "$(base_in_prompt f4)"
+FAKE_PR_BASE="" RALPH_BASE_BRANCH="f4"
+check "gh cannot answer: the configured base" "1" "$(base_in_prompt f4)"
+DRY_RUN=1 FAKE_PR_BASE="f3" RALPH_BASE_BRANCH="f4"
+check "dry run: gh is not asked" "1" "$(base_in_prompt f4)"
+DRY_RUN=0 TASK_PR="" STAGE_FIRST=1 FAKE_PR_BASE="" RALPH_BASE_BRANCH="f3"
 check "the prompt asks for the exact result path" "1" "$(build_prompt | grep -c 'to this exact absolute path')"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"

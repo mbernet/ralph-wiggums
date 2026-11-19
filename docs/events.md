@@ -26,7 +26,7 @@ Money is integer micro-dollars (`costU`), like everywhere in `ralph.sh`. Times a
 
 ### Session
 
-- **`session.start`**: `run`, `project`, `description`, `worker`, `api` (the URL, or `fake` in a dry run), `branch`, `pipeline` (stage names), `tool`, `toolVersion`, `tiers` (`{low, med, high}` → model), `pace` (`{mode, budgetPct, weekGuardPct, reason}`), `maxIterations`, `dryRun`, `scenario`, `story` (the `--story`, or null), `logs`, `pid` (of `ralph.sh`), `control` (`{stop, skip}`, see below).
+- **`session.start`**: `run`, `project`, `description`, `worker`, `api` (the URL, or `fake` in a dry run), `branch`, `baseBranch` (`RALPH_BASE_BRANCH`, or null for the repo's default branch), `worktree` (the absolute path of `RALPH_WORKTREE`, or null), `pipeline` (stage names), `tool`, `toolVersion`, `tiers` (`{low, med, high}` → model), `pace` (`{mode, budgetPct, weekGuardPct, reason}`), `maxIterations`, `dryRun`, `scenario`, `story` (the `--story`, or null), `logs`, `pid` (of `ralph.sh`), `control` (`{stop, skip}`, see below).
 - **`session.end`**: `state` (`complete`, `blocked`, `exhausted`, `api`, `stuck`, `stopped`, `incomplete`), `ran`, `registered`, `failed`, `retried`, `costU`, `tokens` (`{in, out, cacheRead, cacheWrite}`), `wallS`, `agentS`, `throttledS`, `tiers` (`{low|med|high: {runs, costU}}`), `ledger`, `logs`, `next` (the command that carries on, or null). Missing when `ralph.sh` dies before the end of the session.
 - **`session.exit`**: `code`, the exit code of `ralph.sh`. Always written, from the EXIT trap.
 

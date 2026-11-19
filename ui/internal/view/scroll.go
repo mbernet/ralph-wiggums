@@ -233,6 +233,9 @@ func (v *View) header(b event.SessionStart, o Options) []string {
 	if b.Branch != "" {
 		meta = append(meta, "branch "+b.Branch)
 	}
+	if b.BaseBranch != "" {
+		meta = append(meta, "base "+b.BaseBranch)
+	}
 	meta = append(meta, tool, pace)
 	if b.Story != "" {
 		meta = append(meta, "only "+b.Story)
@@ -243,6 +246,9 @@ func (v *View) header(b event.SessionStart, o Options) []string {
 		stages = append(stages, t.Muted.Render(s))
 	}
 	lines = append(lines, trunc("  "+strings.Join(stages, t.Faint.Render(" "+g.Pipe+" ")), w))
+	if b.Worktree != "" {
+		lines = append(lines, trunc("  "+t.Faint.Render("worktree "+b.Worktree), w))
+	}
 	lines = append(lines, trunc("  "+t.Faint.Render("logs "+b.Logs), w))
 	return lines
 }
