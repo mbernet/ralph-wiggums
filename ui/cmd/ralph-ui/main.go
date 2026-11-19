@@ -40,7 +40,7 @@ const usage = `ralph-ui - renders a ralph.sh run from its event stream
   ralph-ui replay <events file>
 
   Options
-    --detail quiet|normal|verbose   how much of the agent goes up the scrollback
+    --detail quiet|normal|verbose   how much of the agent the screen shows
     --ascii                          no Unicode glyphs
     --width <n>                      replay and board: the width to draw at
 

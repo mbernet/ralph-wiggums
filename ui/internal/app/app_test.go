@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"bytes"
@@ -21,9 +22,11 @@ func liveModel(t *testing.T, mode Mode) (*model, string, string) {
 	dir := t.TempDir()
 	stop, skip := filepath.Join(dir, "stop"), filepath.Join(dir, "skip")
 	m := &model{
-		cfg: Config{Mode: mode},
-		v:   view.New(lipgloss.NewRenderer(&bytes.Buffer{}), false),
-		s:   state.New(),
+		cfg:  Config{Mode: mode},
+		v:    view.New(lipgloss.NewRenderer(&bytes.Buffer{}), false),
+		s:    state.New(),
+		body: &view.Body{},
+		verb: view.Normal,
 	}
 	e, err := event.Decode([]byte(`{"v":1,"ts":1,"type":"session.start","project":"p","worker":"w",
 		"control":{"stop":"` + stop + `","skip":"` + skip + `"}}`))
@@ -96,8 +99,8 @@ func TestZOpensTheSaverOnTheWholeScreenAndAnyKeyCloses(t *testing.T) {
 	if exists(stop) {
 		t.Fatal("the key that closes the saver also asked the loop to stop")
 	}
-	if got := len(strings.Split(m.View(), "\n")); got >= 18 {
-		t.Fatalf("the saver is still open: %d lines", got)
+	if m.saver != nil {
+		t.Fatal("the saver is still open")
 	}
 	m.Update(key("q"))
 	if !exists(stop) {
@@ -105,29 +108,89 @@ func TestZOpensTheSaverOnTheWholeScreenAndAnyKeyCloses(t *testing.T) {
 	}
 }
 
-func TestWhatHappensUnderTheSaverIsPrintedOnReturn(t *testing.T) {
+func TestWhatHappensUnderTheSaverIsThereOnReturn(t *testing.T) {
 	m, _, _ := liveModel(t, Live)
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
 	m.Update(key("z"))
 	send(t, m, `{"v":1,"ts":5,"type":"notice","level":"warn","text":"disk-nearly-full"}`)
-	if !strings.Contains(strings.Join(m.held, "\n"), "disk-nearly-full") {
-		t.Fatal("a notice under the saver is not kept for the return")
-	}
-	if _, cmd := m.Update(key("x")); cmd == nil || len(m.held) != 0 {
-		t.Fatal("the kept lines are not printed on return")
+	m.Update(key("x"))
+	if !strings.Contains(m.View(), "disk-nearly-full") {
+		t.Fatalf("a notice under the saver is not on the screen after it:\n%s", m.View())
 	}
 }
 
-func TestTheEndOfTheSessionClosesTheSaver(t *testing.T) {
+func TestTheEndOfTheSessionLeavesTheReportForTheTerminal(t *testing.T) {
 	m, _, _ := liveModel(t, Live)
 	m.Update(tea.WindowSizeMsg{Width: 70, Height: 18})
 	m.Update(key("z"))
+	send(t, m, `{"v":1,"ts":8,"type":"session.end","state":"complete","ran":3}`)
 	send(t, m, `{"v":1,"ts":9,"type":"session.exit","code":0}`)
-	if m.saver != nil || len(m.held) != 0 || !m.done {
-		t.Fatal("the session ended under the saver and the saver stayed")
+	if m.saver != nil || !m.done {
+		t.Fatal("the session ended and the screen stayed")
+	}
+	if !strings.Contains(strings.ToLower(m.after), "complete") {
+		t.Fatalf("the report is not left to print after the screen:\n%s", m.after)
+	}
+}
+
+func TestTheBodyScrollsBackAndEndFollowsAgain(t *testing.T) {
+	m, _, _ := liveModel(t, Live)
+	m.Update(tea.WindowSizeMsg{Width: 70, Height: 14})
+	send(t, m, `{"v":1,"ts":2,"type":"stage.start","task":{"id":"US-1","title":"First"},"stage":"implement","pos":1,"count":1,"attempt":1}`)
+	for i := 0; i < 30; i++ {
+		send(t, m, fmt.Sprintf(`{"v":1,"ts":3,"type":"agent.tool","name":"Read","arg":"f%02d.go"}`, i))
+	}
+	if strings.Contains(m.View(), "US-1") {
+		t.Fatalf("the body does not follow the newest messages:\n%s", m.View())
+	}
+	for i := 0; i < 10; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	}
+	back := m.View()
+	if !strings.Contains(back, "US-1") {
+		t.Fatalf("PgUp does not go back to the start:\n%s", back)
+	}
+	send(t, m, `{"v":1,"ts":4,"type":"agent.tool","name":"Read","arg":"newest.go"}`)
+	if strings.Contains(m.View(), "newest.go") || !strings.Contains(m.View(), "US-1") {
+		t.Fatalf("a new message moves a body scrolled back:\n%s", m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if !strings.Contains(m.View(), "newest.go") {
+		t.Fatalf("End does not follow again:\n%s", m.View())
+	}
+}
+
+func TestTheBoardOpensInPlaceAndQClosesIt(t *testing.T) {
+	m, stop, _ := liveModel(t, Live)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	send(t, m, `{"v":1,"ts":2,"type":"board","tasks":[{"id":"US-42","title":"Board card","stage":"implement"}]}`)
+	m.Update(key("b"))
+	if !strings.Contains(m.View(), "US-42") {
+		t.Fatalf("b does not show the board:\n%s", m.View())
+	}
+	m.Update(key("q"))
+	if exists(stop) || strings.Contains(m.View(), "US-42") {
+		t.Fatal("q on the board does not just close it")
 	}
 }
 
 func key(k string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+}
+
+func TestOOpensThePROfTheTask(t *testing.T) {
+	m, _, _ := liveModel(t, Live)
+	var opened string
+	m.open = func(url string) error { opened = url; return nil }
+	m.key("o")
+	if opened != "" {
+		t.Fatalf("o opened %q with no PR", opened)
+	}
+	send(t, m, `{"v":1,"ts":2,"type":"stage.start","task":{"id":"US-7","title":"T","pr":"https://github.com/acme/app/pull/12"},"stage":"review","pos":2,"count":2,"attempt":1}`)
+	if cmd := m.key("o"); cmd != nil {
+		cmd()
+	}
+	if opened != "https://github.com/acme/app/pull/12" {
+		t.Fatalf("o opened %q", opened)
+	}
 }
