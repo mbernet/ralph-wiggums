@@ -152,7 +152,7 @@ RALPH_BASE_BRANCH=""
 check "no base branch: the prompt names none" "0" "$(build_prompt | grep -c 'The base branch of this run')"
 RALPH_BASE_BRANCH="f3"
 check "a base branch: the prompt names it" "1" "$(build_prompt | grep -c 'The base branch of this run is `f3`')"
-check "the prompt asks for the result path as written" "1" "$(build_prompt | grep -c 'Use the path exactly as written')"
+check "the prompt asks for the exact result path" "1" "$(build_prompt | grep -c 'to this exact absolute path')"
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 ((FAIL == 0))

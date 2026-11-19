@@ -1405,9 +1405,9 @@ build_prompt() {
   fi
   printf '.\nThis session runs on model `%s` (tier `%s`), chosen for it.\n\n' "$MODEL" "$STORY_TIER"
   if [[ -n "$RALPH_BASE_BRANCH" ]]; then
-    printf 'The base branch of this run is `%s` (`origin/%s`), not the repo'"'"'s default branch: the task branch starts from it and its pull request goes into it.\n\n' "$RALPH_BASE_BRANCH" "$RALPH_BASE_BRANCH"
+    printf 'The base branch of this run is `%s`.\n\n' "$RALPH_BASE_BRANCH"
   fi
-  printf 'When you finish, write your result as one JSON object to this file. Use the path exactly as written, never shortened to a relative one: it may lie outside the directory you work in. Writing it is the last thing you do; a summary in your final message does not count.\n\n'
+  printf 'When you finish, write your result as one JSON object to this exact absolute path, which may lie outside your working directory. A summary in your last message is not a result.\n\n'
   printf '    %s\n\n' "$RESULT_FILE"
   result_rules
   if [[ -n "$ATTEMPT_NOTE" ]]; then
