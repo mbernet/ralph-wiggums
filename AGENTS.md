@@ -14,10 +14,11 @@ Ralph is an autonomous agent loop. `ralph.sh` runs an AI coding tool (Amp or Cla
 ./tests/window.test.sh
 ./tests/events.test.sh
 ./tests/classify.test.sh
+./tests/workspace.test.sh
 make -C ui test        # ralph-ui; its view tests replay real dry runs of ralph.sh
 
 # Lint
-shellcheck -x -S style ralph.sh tests/api.test.sh tests/events.test.sh tests/classify.test.sh
+shellcheck -x -S style ralph.sh tests/api.test.sh tests/events.test.sh tests/classify.test.sh tests/workspace.test.sh
 
 # Iterate on ralph.sh output with no API calls
 ./ralph.sh --dry-run --fast

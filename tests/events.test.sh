@@ -138,6 +138,8 @@ check "it opens with the session and closes with its end" "session.start session
   "$(ev_q '[first.type, (map(select(.type != "session.exit")) | last.type)] | join(" ")')"
 check "the session says what it works on" "myapp vps-1 4" \
   "$(ev_q 'first | "\(.project) \(.worker) \(.pipeline | length)"')"
+check "with no workspace settings, the session names no base branch or worktree" "null null" \
+  "$(ev_q 'first | "\(.baseBranch) \(.worktree)"')"
 check "each stage starts and ends" \
   "implement review_functional review_code merge|implement review_functional review_code merge" \
   "$(ev_q '[map(select(.type == "stage.start") | .stage), map(select(.type == "stage.end") | .stage)]
@@ -156,6 +158,13 @@ check "the exit code is the last event" "session.exit 0" \
 
 check "a plain-text agent's output arrives line by line" "4" \
   "$(ev_q 'map(select(.type == "agent.line" and (.text | startswith("working on")))) | length')"
+
+REPO="$(cd "$TEST_DIR/.." && pwd)"
+RALPH_BASE_BRANCH="f3" RALPH_WORKTREE="$REPO"
+loop workspace "" --dry-run --fast --scenario complete
+RALPH_BASE_BRANCH="" RALPH_WORKTREE=""
+check "the session names the base branch and the worktree it was given" "f3 $REPO" \
+  "$(ev_q 'first | "\(.baseBranch) \(.worktree)"')"
 
 printf '\nthe agent, from its stream\n'
 
