@@ -37,7 +37,7 @@ Done when every check passes.
 A worker switches branches and stashes what it finds uncommitted, so it never runs in a working copy a person uses.
 
 1. Clone the project next to the person's copy, as `<project>-ralph`, unless they want it elsewhere.
-2. Copy Ralph into it: `<ralph>/ralph.sh` and `<ralph>/prompts/` into `scripts/ralph/`. With `go`, run `make -C <ralph>/ui` and copy `<ralph>/ui/bin/ralph-ui` to `scripts/ralph/ui/bin/`.
+2. Copy Ralph into it: `<ralph>/ralph.sh` and `<ralph>/prompts/` into `scripts/ralph/`. With `go`, run `make -C <ralph>/ui` and copy `<ralph>/ui/bin/ralph-ui` to `scripts/ralph/ui/bin/`. To update a `ralph-ui` already there, delete it before copying the new one: on macOS a binary overwritten in place is killed when it starts (exit 137), and Ralph falls back to the plain output.
 3. Add `scripts/ralph/` to the clone's `.git/info/exclude`. The agents commit everything in the tree; this keeps Ralph, its logs and the token out of their commits without touching the project's `.gitignore`.
 4. Write `scripts/ralph/.ralph/env`, one `KEY=value` per line:
 
